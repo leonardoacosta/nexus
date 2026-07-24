@@ -107,6 +107,64 @@ private final class SpyMP3Player: MP3PlayerProtocol, @unchecked Sendable {
     func stop() {}
 }
 
+/// Playback spy for the queue tests (tts-pipeline-stop-and-queue, task 2.2).
+///
+/// Unlike `SpyMP3Player` it implements the three optional seams the queue
+/// depends on: it records the ids published via `setCurrentlyPlaying(id:)` (the
+/// ORDER of those ids is the sequencing proof) and it stores the observer's
+/// finish/stop callbacks so a test can drive a clip to completion — or halt one
+/// — deterministically, with no real audio device and no wall-clock waiting.
+private final class QueueSpyPlayer: MP3PlayerProtocol, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _playedIds: [String] = []
+    private var _playCount = 0
+
+    /// Ids published for each clip, in start order.
+    var playedIds: [String] { lock.lock(); defer { lock.unlock() }; return _playedIds }
+    /// Raw `play()` invocations — equals `playedIds.count` unless a clip started
+    /// without publishing an id, which would itself be a regression.
+    var playCount: Int { lock.lock(); defer { lock.unlock() }; return _playCount }
+
+    var onPlaybackFinished: (() -> Void)?
+    var onPlaybackStopped: (() -> Void)?
+
+    func play(mp3Data _: Data, ducking _: DuckingMode) throws {
+        lock.lock(); defer { lock.unlock() }
+        _playCount += 1
+    }
+
+    func stop() {}
+
+    func setCurrentlyPlaying(id: String?) {
+        guard let id else { return }
+        lock.lock(); defer { lock.unlock() }
+        _playedIds.append(id)
+    }
+
+    /// Simulate the in-flight clip ending naturally (AVAudioPlayer's
+    /// `audioPlayerDidFinishPlaying` delegate seam).
+    func finishClip() { onPlaybackFinished?() }
+
+    /// Simulate a stop tap halting the in-flight clip (`AudioPlayer.stop()`).
+    func stopClip() { onPlaybackStopped?() }
+}
+
+/// SpeechProvider stub returning a fixed, above-the-minimum-size payload so the
+/// provider chain reports success and the pipeline reaches `playMP3`.
+/// (`TTSObserver.minimumPayloadBytes` is 1024 — anything smaller is treated as
+/// an error envelope and the chain advances.)
+private struct StubSpeechProvider: SpeechProvider {
+    let payload: Data
+
+    init(byteCount: Int = 2048) {
+        self.payload = Data(repeating: 0xAB, count: byteCount)
+    }
+
+    func synthesize(text _: String, voice _: String) async throws -> Data {
+        payload
+    }
+}
+
 // MARK: - Test fixture
 
 @MainActor
@@ -131,14 +189,15 @@ final class TTSObserverTests: XCTestCase {
         audioPlayer: MP3PlayerProtocol? = nil,
         settings: SettingsStore = SettingsStore(defaults: UserDefaults(
             suiteName: "tts-observer-tests-\(UUID().uuidString)"
-        )!)
+        )!),
+        elevenLabs: any SpeechProvider = ElevenLabsClient()
     ) -> TTSObserver {
         TTSObserver(
             client: makeUnreachableAggregate(),
             keychain: keychain,
             audioPlayer: audioPlayer,
             systemSpeech: SystemSpeechSynthesizer(),
-            elevenLabs: ElevenLabsClient(),
+            elevenLabs: elevenLabs,
             settings: settings,
             notificationCenter: .current()
         )
@@ -565,5 +624,120 @@ final class TTSObserverTests: XCTestCase {
 
         XCTAssertFalse(store.ttsEnabled,
                        "a payload-wrapped frame is unwrapped and applied")
+    }
+
+    // MARK: - 8) Back-to-back tts events queue and play sequentially
+    //          (tts-pipeline-stop-and-queue, task 2.2 / nx-m3du3)
+    //
+    // Policy (tasks.md 1.1, decided by:leo — Option 1): every `tts` event
+    // eventually plays, in arrival order. Before this, concurrent `handle()`
+    // calls each ran their own synth + `play()`, and each new clip superseded
+    // the in-flight one mid-sentence — the uncoordinated race these cases
+    // exclude. `debugIsSpeaking` / `debugPendingSpeechCount` make the queue
+    // state observable without any wall-clock guessing.
+
+    /// A tts observer wired for real playback: creds present, a stub provider
+    /// returning an above-minimum payload, tts enabled, and a queue-aware spy
+    /// player — so `synthesise()` reaches `playMP3()` and reports a clip in
+    /// flight (which is what parks the next event).
+    private func makeQueueObserver(player: QueueSpyPlayer) -> TTSObserver {
+        makeObserver(
+            keychain: StubKeychainStore(apiKey: "kfake", voiceId: "vfake"),
+            audioPlayer: player,
+            settings: makeSettings(ttsEnabled: true),
+            elevenLabs: StubSpeechProvider()
+        )
+    }
+
+    private func ttsEvent(body: String) -> NotificationEvent {
+        NotificationEvent(
+            id: UUID(),
+            body: body,
+            channel: "tts",
+            title: "Nexus",
+            severity: .info,
+            deliveryState: .pending
+        )
+    }
+
+    /// Poll `condition` on the MainActor until it holds or `timeout` elapses.
+    /// `advanceQueue()` releases the next event through a `Task { @MainActor }`
+    /// hop, so the release is not observable on the statement after the finish
+    /// callback fires.
+    @discardableResult
+    private func waitUntil(
+        timeout: TimeInterval = 3.0,
+        _ condition: () -> Bool
+    ) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return true }
+            try? await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
+        return condition()
+    }
+
+    /// Two `tts` events delivered back-to-back: the first plays immediately,
+    /// the second is PARKED (not raced onto the player), and it is released —
+    /// in arrival order — only when the first clip finishes.
+    func testBackToBackTtsEventsPlaySequentially() async {
+        let player = QueueSpyPlayer()
+        let observer = makeQueueObserver(player: player)
+
+        let first = ttsEvent(body: "first message")
+        let second = ttsEvent(body: "second message")
+
+        await observer.handle(event: first)
+        XCTAssertTrue(observer.debugIsSpeaking,
+                      "the first event starts a clip and marks the pipeline speaking")
+        XCTAssertEqual(observer.debugPendingSpeechCount, 0, "nothing queued yet")
+        XCTAssertEqual(player.playedIds, [first.id.uuidString],
+                       "the first event's clip started and published its id")
+
+        await observer.handle(event: second)
+        XCTAssertEqual(player.playCount, 1,
+                       "the second event MUST NOT start a competing clip (no race)")
+        XCTAssertEqual(observer.debugPendingSpeechCount, 1,
+                       "the second event is parked in the queue")
+        XCTAssertTrue(observer.debugIsSpeaking)
+
+        // The first clip finishes naturally — that's the queue's advance trigger.
+        player.finishClip()
+        await waitUntil { player.playCount == 2 }
+
+        XCTAssertEqual(player.playedIds,
+                       [first.id.uuidString, second.id.uuidString],
+                       "clips play in arrival order, one at a time")
+        XCTAssertEqual(observer.debugPendingSpeechCount, 0, "queue drained")
+        XCTAssertTrue(observer.debugIsSpeaking, "the second clip is now in flight")
+
+        // The second clip finishes with an empty queue — the pipeline goes idle.
+        player.finishClip()
+        await waitUntil { observer.debugIsSpeaking == false }
+        XCTAssertFalse(observer.debugIsSpeaking,
+                       "an empty queue clears the speaking flag")
+        XCTAssertEqual(player.playCount, 2, "no phantom third clip")
+    }
+
+    /// The mirror seam: stopping the in-flight clip ends the burst. `stop()`
+    /// never fires the finish callback, so without the stop hook the queue would
+    /// wait forever — and crucially, the stop tap must not start the queued clip.
+    func testStopDropsQueuedTtsEvents() async {
+        let player = QueueSpyPlayer()
+        let observer = makeQueueObserver(player: player)
+
+        await observer.handle(event: ttsEvent(body: "first message"))
+        await observer.handle(event: ttsEvent(body: "second message"))
+        XCTAssertEqual(observer.debugPendingSpeechCount, 1)
+
+        // User taps stop on the playing row.
+        player.stopClip()
+        await waitUntil { observer.debugIsSpeaking == false }
+
+        XCTAssertEqual(observer.debugPendingSpeechCount, 0,
+                       "a stop tap drops the pending burst rather than skipping ahead")
+        XCTAssertFalse(observer.debugIsSpeaking)
+        XCTAssertEqual(player.playCount, 1,
+                       "stopping must NOT start the queued clip as a side effect")
     }
 }

@@ -21,8 +21,8 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 New `AudioControlTests.swift` case: a row matching the currently pipeline-playing event id renders `stop.circle`; tapping it halts audio with no new clip starting. [type:testing] [beads:nx-j5fws]
+- [x] 2.1 New `AudioControlTests.swift` case: a row matching the currently pipeline-playing event id renders `stop.circle`; tapping it halts audio with no new clip starting. [type:testing] [beads:nx-j5fws]
   - touches: `apps/swift/nexus-mac/Tests/AudioControlTests.swift`
-- [ ] 2.2 New `TTSObserverTests.swift` case covering the 1.1 policy: two `tts` events delivered back-to-back produce the chosen behavior (sequential play, or drop-and-log) — not an uncoordinated race. [type:testing] [beads:nx-m3du3]
+- [x] 2.2 New `TTSObserverTests.swift` case covering the 1.1 policy: two `tts` events delivered back-to-back produce the chosen behavior (sequential play, or drop-and-log) — not an uncoordinated race. [type:testing] [beads:nx-m3du3]
   - touches: `apps/swift/nexus-mac/Tests/TTSObserverTests.swift`
-- [ ] 2.3 Verify: `xcodebuild -scheme nexus-mac test -only-testing:nexus-mac-Tests -only-testing:NexusSharedTests` green (or the ssh-mac `swiftc -typecheck` contract) — paste output. [type:testing] [beads:nx-yl248]
+- [x] 2.3 Verify: `xcodebuild -scheme nexus-mac test -only-testing:nexus-mac-Tests -only-testing:NexusSharedTests` green (or the ssh-mac `swiftc -typecheck` contract) — paste output. [type:testing] [beads:nx-yl248]

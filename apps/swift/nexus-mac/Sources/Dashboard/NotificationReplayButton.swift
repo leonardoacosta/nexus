@@ -24,9 +24,20 @@ struct NotificationReplayButton: View {
     @ObservedObject private var audioPlayer = AudioPlayer.shared
     @State private var error: String?
 
-    /// True while THIS row's audio is the clip the shared player is playing.
-    private var isPlaying: Bool {
+    /// True while THIS row's audio is the clip the shared player is playing —
+    /// whether it was started by a manual replay tap or by the TTS pipeline
+    /// (`TTSObserver.playMP3` publishes the speaking event's id on the same
+    /// shared player). `internal` so nexus-mac-Tests can assert the control
+    /// state without a SwiftUI view-inspection dependency.
+    var isPlaying: Bool {
         audioPlayer.currentlyPlayingId == notificationId
+    }
+
+    /// SF Symbol rendered by `body`. Extracted (rather than inlined in the
+    /// `Image`) purely so the stop-vs-play control is assertable from tests.
+    /// Spec: openspec/changes/tts-pipeline-stop-and-queue (task 2.1).
+    var iconName: String {
+        isPlaying ? "stop.circle" : "play.circle"
     }
 
     var body: some View {
@@ -36,7 +47,7 @@ struct NotificationReplayButton: View {
             Button {
                 Task { await handleTap() }
             } label: {
-                Image(systemName: isPlaying ? "stop.circle" : "play.circle")
+                Image(systemName: iconName)
                     .imageScale(.medium)
             }
             .buttonStyle(.borderless)
@@ -50,7 +61,8 @@ struct NotificationReplayButton: View {
     /// `AudioPlayer.shared.stop()` / `setCurrentlyPlaying(id:)` publish their
     /// `@Published` mutation on the main thread themselves, so this stays
     /// non-isolated to keep the cross-actor `streamNotificationAudio` call legal.
-    private func handleTap() async {
+    /// `internal` so nexus-mac-Tests can drive the tap directly.
+    func handleTap() async {
         let wasPlayingThisRow = audioPlayer.currentlyPlayingId == notificationId
         AudioPlayer.shared.stop()
         guard !wasPlayingThisRow else { return }

@@ -78,6 +78,7 @@ afterAll(() => {
 const { lifecycleBus } = await import("../services/lifecycle-bus");
 const { NotificationManager } = await import("./manager");
 const { setRoutingRules } = await import("./router");
+const { PresenceContext } = await import("./presence-context");
 
 const stubDb = {} as unknown as ConstructorParameters<typeof NotificationManager>[0];
 
@@ -162,5 +163,196 @@ describe("integration — POST → manager → lifecycleBus carries audioBase64"
     expect(decoded.byteLength).toBe(60);
     expect(decoded[0]).toBe(fakeMp3[0]);
     expect(decoded[59]).toBe(fakeMp3[59]);
+  });
+});
+
+// ─── Service-originated notifications share the send() gating pipeline ─────
+// route-service-notifications-through-manager, task 2.1. The 5 bypass sites
+// (proactive-swap, reaper-job, deploy-staleness, data-integrity-scan,
+// credential-swap-flow) now call `sendServiceNotification()` instead of
+// emitting `NotificationFired` straight onto the bus, so the meeting-hold and
+// quiet-hours gates that already applied to HTTP-originated notifications MUST
+// apply to them identically. Service payloads carry NO `project`, which is the
+// shape most likely to slip past a gate (project-less rows deliberately skip
+// rate-throttling — manager.ts:236 — so hold/quiet-hours are the only gates
+// left standing).
+
+/** Mirrors manager-presence.test.ts's stub, plus the held payload capture. */
+function makeHeldQueueStub() {
+  const calls: {
+    id: string;
+    holdUntil: Date;
+    payload: { title: string; body?: string; project?: string };
+  }[] = [];
+  return {
+    calls,
+    queue: {
+      hold: mock(
+        async (input: {
+          id: string;
+          holdUntil: Date;
+          payload: { title: string; body?: string; project?: string };
+        }) => {
+          calls.push({
+            id: input.id,
+            holdUntil: input.holdUntil,
+            payload: input.payload,
+          });
+        },
+      ),
+      scheduleFlush: mock(() => {}),
+      loadPending: mock(async () => []),
+      flush: mock(async () => null),
+      flushDue: mock(async () => []),
+      hydrate: mock(async () => []),
+      shutdown: mock(() => {}),
+    },
+  };
+}
+
+function makeQuietHoursStub(opts: {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+}) {
+  return {
+    settings: mock(async () => ({
+      enabled: opts.enabled,
+      startHour: opts.startHour,
+      endHour: opts.endHour,
+    })),
+  };
+}
+
+/** The minimal id/title/body/channel shape the 5 bypass sites already build. */
+function makeServicePayload(
+  id: string,
+  overrides: Partial<NotificationFiredPayload> = {},
+): NotificationFiredPayload {
+  return {
+    id,
+    title: "Reaper: 3 bloat findings",
+    body: "docs/apply pruned to 12 runs",
+    channel: "tts",
+    ...overrides,
+  };
+}
+
+describe("integration — sendServiceNotification shares send()'s gating", () => {
+  beforeEach(() => {
+    // No project rules: a project-less service row falls through to
+    // findMatchingRule's "respect the caller's explicit channel" branch.
+    setRoutingRules([]);
+  });
+
+  afterEach(() => {
+    setRoutingRules([]);
+  });
+
+  it("holds a project-less service notification during a meeting and flushes it via the coalesced-summary path", async () => {
+    // Live console is an in-meeting Mac → presence Rule 2 holds.
+    const ctx = new PresenceContext("leo", "studio");
+    ctx.report({ macActive: true, macHost: "studio", inMeeting: true }, "test");
+    const localVector = ctx.vector();
+    const hq = makeHeldQueueStub();
+    const mgr = new NotificationManager(stubDb, undefined, {
+      context: ctx,
+      heldQueue: hq.queue as never,
+      presenceAwareRouting: () => true,
+      resolveLiveConsoleVector: async () => localVector,
+    });
+
+    const row = await mgr.sendServiceNotification(
+      makeServicePayload("svc-hold-1"),
+    );
+
+    // Service shape: no project, and the row is NOT delivered — it is held.
+    expect(row.project).toBeNull();
+    expect(row.status).toBe("queued");
+    expect(hq.calls.map((c) => c.id)).toContain("svc-hold-1");
+
+    const held = hq.calls.find((c) => c.id === "svc-hold-1")!;
+    expect(held.payload.title).toBe("Reaper: 3 bloat findings");
+    expect(held.holdUntil.getTime()).toBeGreaterThan(Date.now());
+
+    // Flush through the existing coalesced-summary path — same call the
+    // HeldQueue makes when the hold window expires.
+    const summary = await mgr.flushHeldBatch([
+      {
+        id: held.id,
+        userId: "leo",
+        payload: held.payload,
+        holdUntil: held.holdUntil,
+        reason: "rule-2-meeting",
+        createdAt: new Date(),
+        releasedAt: new Date(),
+      },
+    ] as never);
+
+    expect(summary).not.toBeNull();
+    // Single hold keeps its own title; project-less stays project-less.
+    expect(summary!.title).toBe("Reaper: 3 bloat findings");
+    expect(summary!.project).toBeNull();
+    // Mac active, not bedtime → the summary speaks.
+    expect(summary!.channel).toBe("tts");
+  });
+
+  it("suppresses a service notification during quiet hours exactly as an HTTP-originated one", async () => {
+    const h = new Date().getHours();
+    const quietHours = makeQuietHoursStub({
+      enabled: true,
+      startHour: h,
+      endHour: (h + 1) % 24,
+    });
+    const mgr = new NotificationManager(
+      stubDb,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      quietHours,
+    );
+
+    // HTTP-originated control (the already-covered behavior).
+    const httpRow = await mgr.send({
+      id: "qh-http-1",
+      title: "Build complete",
+      body: "wave done",
+      channel: "tts",
+      priority: "normal",
+      project: null,
+      agentId: null,
+      createdAt: new Date(),
+    } as never);
+    expect(httpRow.channel).toBe("desktop");
+
+    // Service-originated: same gate, same outcome.
+    const svcRow = await mgr.sendServiceNotification(
+      makeServicePayload("qh-svc-1"),
+    );
+    expect(svcRow.project).toBeNull();
+    expect(svcRow.channel).toBe("desktop");
+  });
+
+  it("does not suppress a service notification outside the quiet-hours window", async () => {
+    const h = new Date().getHours();
+    const quietHours = makeQuietHoursStub({
+      enabled: true,
+      startHour: (h + 2) % 24,
+      endHour: (h + 3) % 24,
+    });
+    const mgr = new NotificationManager(
+      stubDb,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      quietHours,
+    );
+
+    const row = await mgr.sendServiceNotification(
+      makeServicePayload("qh-svc-2"),
+    );
+    expect(row.channel).toBe("tts");
   });
 });

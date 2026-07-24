@@ -23,6 +23,6 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 New `manager.integration.test.ts` cases: a service-shaped notification (no `project`) submitted via `sendServiceNotification()` is held during an active meeting and flushed via the existing coalesced-summary path; a service notification fired during quiet hours is suppressed the same way an HTTP-originated one is. [type:testing] [beads:nx-bcunm]
+- [x] 2.1 New `manager.integration.test.ts` cases: a service-shaped notification (no `project`) submitted via `sendServiceNotification()` is held during an active meeting and flushed via the existing coalesced-summary path; a service notification fired during quiet hours is suppressed the same way an HTTP-originated one is. [type:testing] [beads:nx-bcunm]
   - touches: `apps/agent/src/notifications/manager.integration.test.ts`
-- [ ] 2.2 Existing test suites for all 5 touched services still pass — their `notify` injection seam still intercepts calls in tests (no test rewrite required beyond whatever the redirect needs). Run and paste: `bun test apps/agent/src/notifications apps/agent/src/services`. [type:testing] [beads:nx-7qmqo]
+- [x] 2.2 Existing test suites for all 5 touched services still pass — their `notify` injection seam still intercepts calls in tests (no test rewrite required beyond whatever the redirect needs). Run and paste: `bun test apps/agent/src/notifications apps/agent/src/services`. [type:testing] [beads:nx-7qmqo]

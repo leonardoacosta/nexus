@@ -19,7 +19,7 @@ serialization, so they land one after another with no way to skip ahead. Give pi
 playing identity and a serialize/skip queue.
 
 ## Context
-- depends on:
+- depends on: `fix-swift-tts-audit-defects`
 - touches: `apps/swift/NexusShared/Observers/TTSObserver.swift`, `apps/swift/nexus-mac/Sources/AudioPlayer.swift`, `apps/swift/nexus-mac/Sources/Dashboard/NotificationReplayButton.swift`, `apps/swift/nexus-mac/Tests/TTSObserverTests.swift`, `apps/swift/nexus-mac/Tests/AudioControlTests.swift`
 - base-commit: nexus@9e4963b9
 

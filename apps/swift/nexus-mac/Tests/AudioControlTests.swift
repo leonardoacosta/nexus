@@ -20,6 +20,10 @@
 //      grace window elapses (uses a short injected grace); grace resets when
 //      a new clip starts before it elapses; the remote-command handler
 //      invokes the cancel hook.
+//   3. NotificationReplayButton stop control for a PIPELINE clip — the row
+//      whose id matches the currently-playing event renders `stop.circle`,
+//      and tapping it halts the clip without starting a new one.
+//      Spec: openspec/changes/tts-pipeline-stop-and-queue (task 2.1).
 
 import XCTest
 @testable import NexusShared
@@ -140,5 +144,83 @@ final class NowPlayingControllerTests: XCTestCase {
         let consumed = controller.debugHandleRemoteCommand()
         XCTAssertFalse(consumed)
         XCTAssertFalse(cancelled)
+    }
+}
+
+// MARK: - Pipeline stop control (tts-pipeline-stop-and-queue, task 2.1)
+
+/// The TTS pipeline now publishes the speaking event's id on the SAME shared
+/// player the manual replay path uses (`TTSObserver.playMP3` ->
+/// `AudioPlayer.setCurrentlyPlaying(id:)`), so a live pipeline clip gets a
+/// working stop control on its notification row. These cases pin that contract
+/// end-to-end: the matching row renders the stop symbol, a non-matching row
+/// does not, and tapping the stop control clears playback WITHOUT kicking off a
+/// replay fetch.
+@MainActor
+final class PipelineStopControlTests: XCTestCase {
+    override func tearDown() {
+        // The shared player is process-global — never leave a stale id behind
+        // for the next test in the bundle.
+        AudioPlayer.shared.setCurrentlyPlaying(id: nil)
+        super.tearDown()
+    }
+
+    /// A row whose id matches the currently pipeline-playing event renders
+    /// `stop.circle`; every other row keeps `play.circle`.
+    func testPipelinePlayingRowRendersStopIcon() {
+        let eventId = UUID().uuidString
+        let spy = StoppableSpyPlayer()
+        let playingRow = NotificationReplayButton(
+            notificationId: eventId,
+            audioAvailable: true,
+            player: spy
+        )
+        let otherRow = NotificationReplayButton(
+            notificationId: UUID().uuidString,
+            audioAvailable: true,
+            player: spy
+        )
+
+        // Idle baseline — nothing is playing, so no row shows a stop control.
+        AudioPlayer.shared.setCurrentlyPlaying(id: nil)
+        XCTAssertFalse(playingRow.isPlaying)
+        XCTAssertEqual(playingRow.iconName, "play.circle")
+
+        // The pipeline starts a clip and publishes its event id.
+        AudioPlayer.shared.setCurrentlyPlaying(id: eventId)
+
+        XCTAssertTrue(playingRow.isPlaying,
+                      "the row matching the pipeline event id is the playing row")
+        XCTAssertEqual(playingRow.iconName, "stop.circle",
+                       "a live pipeline clip must render a stop control on its row")
+        XCTAssertFalse(otherRow.isPlaying)
+        XCTAssertEqual(otherRow.iconName, "play.circle",
+                       "only the matching row gets the stop control")
+    }
+
+    /// Tapping the stop control on the pipeline-playing row halts playback —
+    /// the published id clears, the icon reverts, and crucially NO new clip is
+    /// started (the same-row re-tap path returns before `play()`).
+    func testTappingPipelineRowStopsWithoutStartingNewClip() async {
+        let eventId = UUID().uuidString
+        let spy = StoppableSpyPlayer()
+        let row = NotificationReplayButton(
+            notificationId: eventId,
+            audioAvailable: true,
+            player: spy
+        )
+
+        AudioPlayer.shared.setCurrentlyPlaying(id: eventId)
+        XCTAssertEqual(row.iconName, "stop.circle")
+
+        await row.handleTap()
+
+        XCTAssertNil(AudioPlayer.shared.currentlyPlayingId,
+                     "the tap halted the in-flight pipeline clip")
+        XCTAssertFalse(row.isPlaying)
+        XCTAssertEqual(row.iconName, "play.circle",
+                       "the row reverts to the play control once stopped")
+        XCTAssertEqual(spy.playCount, 0,
+                       "stopping the current clip must NOT start another one")
     }
 }
