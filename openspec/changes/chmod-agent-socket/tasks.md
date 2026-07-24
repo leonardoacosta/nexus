@@ -15,4 +15,4 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: `bun test apps/agent/src/services/socket-server`, `pnpm typecheck`, `pnpm lint` green; paste output. [type:testing] [beads:nx-jauok]
+- [x] 2.1 Verify: `bun test apps/agent/src/services/socket-server`, `pnpm typecheck`, `pnpm lint` green; paste output. [type:testing] [beads:nx-jauok]
