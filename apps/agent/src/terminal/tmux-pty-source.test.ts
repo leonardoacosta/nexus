@@ -272,6 +272,41 @@ describe("TmuxPtySource argv (Tier 1, recording mock — no live tmux)", () => {
     source.close();
   });
 
+  // ── nx-9qsmb.6: writeQueue survives a doWrite rejection (chain-poisoning guard) ──
+
+  it("[nx-9qsmb.6] a forced doWrite rejection does not poison the writeQueue — subsequent writes still spawn", async () => {
+    const rec = makeRecorder();
+    const source = new TmuxPtySource(TARGET, { spawn: rec.adapter });
+
+    // doWrite() is try/catch-wrapped in production and never rejects today —
+    // that's the implicit invariant this bead flags as fragile. Force a
+    // single rejection via spyOn to prove the queue recovers instead of
+    // getting permanently poisoned (every later write silently no-op'ing).
+    const doWriteSpy = spyOn(
+      source as unknown as { doWrite: (text: string, bytes: number) => Promise<void> },
+      "doWrite",
+    ).mockImplementationOnce(() => Promise.reject(new Error("forced doWrite rejection")));
+
+    source.write(new TextEncoder().encode("first"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(doWriteSpy).toHaveBeenCalledTimes(1);
+    // The forced rejection produced no send-keys spawn for "first" (doWrite
+    // was stubbed out), which is expected — the real assertion is below.
+    doWriteSpy.mockRestore();
+
+    // A second write after the rejection MUST still spawn — proof the queue
+    // did not get stuck on a permanently-rejected promise.
+    source.write(new TextEncoder().encode("second"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const sendKeys = rec.tmuxCalls("send-keys");
+    expect(sendKeys.length).toBe(1);
+    expect(sendKeys[0]).toEqual(["tmux", "send-keys", "-t", TARGET, "-l", "second"]);
+
+    source.close();
+  });
+
   // ── 1.4: resize path (window-size manual gate + unset release) ────────────
 
   it("[1.4] first resize forces manual and resizes (no prior-value read)", () => {

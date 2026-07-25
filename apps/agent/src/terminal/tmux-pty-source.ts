@@ -543,7 +543,17 @@ export class TmuxPtySource implements PtySource {
     const text = new TextDecoder().decode(data);
     if (text.length === 0) return;
     const bytes = data.length;
-    this.writeQueue = this.writeQueue.then(() => this.doWrite(text, bytes));
+    // nx-9qsmb.6: doWrite() is try/catch-wrapped today and never rejects, but
+    // that's an implicit invariant, not a guarantee — a future rejection here
+    // would permanently poison the chain (every subsequent queued write
+    // inherits the rejected promise and silently no-ops). Guard defensively
+    // so the queue always stays in a resolved state.
+    this.writeQueue = this.writeQueue.then(() => this.doWrite(text, bytes)).catch((err: unknown) => {
+      logger.warn(
+        { target: this.target, error: err instanceof Error ? err.message : String(err) },
+        "tmux writeQueue: doWrite rejected unexpectedly — queue recovered",
+      );
+    });
   }
 
   private async doWrite(text: string, bytes: number): Promise<void> {
