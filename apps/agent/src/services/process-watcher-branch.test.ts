@@ -38,12 +38,29 @@ async function repoRoot(): Promise<string> {
   return out.trim();
 }
 
+/**
+ * True when HEAD currently resolves to a named branch (`git symbolic-ref -q
+ * HEAD` exits 0). False on a detached HEAD — the shape of a CI PR merge-ref
+ * checkout (`refs/pull/N/merge`), where `resolveBranch` correctly returns
+ * null (detached HEAD is fail-soft, not a bug — see process-watcher.ts's
+ * `value = out !== "HEAD" ? out : null`) but the "returns a branch" test's
+ * own premise doesn't hold (nx-9qsmb.18).
+ */
+function hasNamedBranch(): boolean {
+  const proc = Bun.spawnSync(["git", "symbolic-ref", "-q", "HEAD"], {
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  return proc.exitCode === 0;
+}
+
 describe("resolveBranch — fail-soft git branch lookup", () => {
   beforeEach(() => {
     clearBranchCache();
   });
 
-  test("returns the current branch for a real git repository (cwd)", async () => {
+  test.skipIf(!hasNamedBranch())("returns the current branch for a real git repository (cwd)", async () => {
     const root = await repoRoot();
     const branch = await resolveBranch(root);
     // We don't pin the branch NAME (CI may run on any branch) — only that a

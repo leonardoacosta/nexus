@@ -50,35 +50,44 @@ const heavyEnabled = process.env.NEXUS_HEAVY_TESTS === "1";
 // ── 1. Bind shape — non-loopback interface, not loopback-only ──────────────
 
 describe.skipIf(!heavyEnabled)("homelab transport — agent binds the non-loopback interface", () => {
-  it("default routing is NOT loopback-only when Tailscale is discoverable", () => {
-    const calls: string[] = [];
-    const fakeFactory = (hostname: string) => {
-      calls.push(hostname);
-      return { hostname, port: 7400 } as unknown as BunServer<WsData>;
-    };
+  it(
+    "default routing is NOT loopback-only when Tailscale is discoverable",
+    () => {
+      const calls: string[] = [];
+      const fakeFactory = (hostname: string) => {
+        calls.push(hostname);
+        return { hostname, port: 7400 } as unknown as BunServer<WsData>;
+      };
 
-    // Mirrors production startServer() default path exactly.
-    const tsIp = __testing.discoverTailscaleIp();
-    __testing.bindServers(undefined, fakeFactory);
+      // Mirrors production startServer() default path exactly.
+      //
+      // nx-9qsmb.18: calls the real (non-injected) discoverTailscaleIp()
+      // TWICE (once directly, once inside bindServers) — each has a ~7.5s
+      // worst-case retry-with-backoff budget when no daemon answers (CI
+      // sandbox), so this needs a timeout above bun's 5000ms default.
+      const tsIp = __testing.discoverTailscaleIp();
+      __testing.bindServers(undefined, fakeFactory);
 
-    // Loopback is always first (local IPC keeps working).
-    expect(calls[0]).toBe("127.0.0.1");
+      // Loopback is always first (local IPC keeps working).
+      expect(calls[0]).toBe("127.0.0.1");
 
-    if (tsIp === null) {
-      // Tailscale genuinely absent → loopback-only is the documented
-      // degraded mode. Nothing to assert beyond "did not crash".
-      expect(calls).toEqual(["127.0.0.1"]);
-      return;
-    }
+      if (tsIp === null) {
+        // Tailscale genuinely absent → loopback-only is the documented
+        // degraded mode. Nothing to assert beyond "did not crash".
+        expect(calls).toEqual(["127.0.0.1"]);
+        return;
+      }
 
-    // Tailscale present → the agent MUST also bind the non-loopback
-    // interface. A loopback-only bind here is the nx- bind regression.
-    expect(calls.length).toBe(2);
-    expect(calls[1]).toBe(tsIp);
-    expect(calls[1]).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
-    expect(calls[1]).not.toBe("127.0.0.1");
-    expect(calls[1]!.startsWith("127.")).toBe(false);
-  });
+      // Tailscale present → the agent MUST also bind the non-loopback
+      // interface. A loopback-only bind here is the nx- bind regression.
+      expect(calls.length).toBe(2);
+      expect(calls[1]).toBe(tsIp);
+      expect(calls[1]).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
+      expect(calls[1]).not.toBe("127.0.0.1");
+      expect(calls[1]!.startsWith("127.")).toBe(false);
+    },
+    20_000,
+  );
 });
 
 // ── 2. Contract shape — /sessions + /health match the core contract ───────

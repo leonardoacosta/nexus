@@ -50,6 +50,10 @@ function makeServeFactory(): {
 
 describe("bindServers (drop-attach-secret-gate)", () => {
   it("default config: bind_address undefined → loopback + Tailscale when discovered", () => {
+    // nx-9qsmb.18: exercises the real (non-injected) discoverTailscaleIp()
+    // retry-with-backoff path — 5 attempts, blocking Bun.sleepSync, ~7.5s
+    // worst case when no daemon answers (CI sandbox). Exceeds bun test's
+    // 5000ms default per-test timeout, so this needs its own budget.
     const { factory, calls } = makeServeFactory();
 
     // Inject a successful Tailscale lookup by monkey-patching the factory:
@@ -77,7 +81,7 @@ describe("bindServers (drop-attach-secret-gate)", () => {
       expect(calls[1]).not.toBe("127.0.0.1");
       expect(calls[1]).not.toBe("0.0.0.0");
     }
-  });
+  }, 10_000);
 
   it('default config: bind_address = "0.0.0.0" is treated identically to undefined', () => {
     const { factory: f1, calls: c1 } = makeServeFactory();
@@ -107,17 +111,24 @@ describe("bindServers (drop-attach-secret-gate)", () => {
 });
 
 describe("discoverTailscaleIp (drop-attach-secret-gate)", () => {
-  it("returns either a valid IPv4 string or null (deterministic shape)", () => {
-    // The actual return value depends on the host (Tailscale present or not)
-    // and is documented to be either a valid IPv4 or null. Both outcomes are
-    // explicitly correct under the spec — we just guard the contract.
-    const ip = __testing.discoverTailscaleIp();
-    if (ip === null) {
-      // Loopback-only mode is a valid degraded mode per the spec.
-      return;
-    }
-    expect(ip).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
-  });
+  it(
+    "returns either a valid IPv4 string or null (deterministic shape)",
+    () => {
+      // The actual return value depends on the host (Tailscale present or not)
+      // and is documented to be either a valid IPv4 or null. Both outcomes are
+      // explicitly correct under the spec — we just guard the contract.
+      //
+      // nx-9qsmb.18: real (non-injected) retry-with-backoff path, ~7.5s worst
+      // case when no daemon answers — needs a timeout above bun's 5000ms default.
+      const ip = __testing.discoverTailscaleIp();
+      if (ip === null) {
+        // Loopback-only mode is a valid degraded mode per the spec.
+        return;
+      }
+      expect(ip).toMatch(/^\d{1,3}(\.\d{1,3}){3}$/);
+    },
+    10_000,
+  );
 });
 
 describe("discoverTailscaleIp retry-with-backoff (nx-ir43a)", () => {
