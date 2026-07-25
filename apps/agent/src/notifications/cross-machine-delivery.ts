@@ -21,7 +21,21 @@
 import { createLogger } from "@nexus/core/node";
 import type { PeerAddress } from "../db/agent-registry";
 
-const log = createLogger("agent:notifications:cross-machine-delivery");
+/**
+ * Lazy accessor, NOT a module-load-time `const log = createLogger(...)`.
+ *
+ * `mock.module("@nexus/core/node", ...)` is process-global + applies to the
+ * CURRENT registry entry at call time. A module-scope const binds whichever
+ * `createLogger` implementation was live when THIS module first loaded —
+ * if some other test file transitively imports this module before installing
+ * its own `@nexus/core/node` mock (or never mocks it), that first binding
+ * wins for the rest of the process and later suites' logger spies never see
+ * the calls (nx-vvl52). Calling `createLogger()` fresh on each use instead
+ * always resolves against whatever mock (if any) is installed at call time.
+ */
+function getLog() {
+  return createLogger("agent:notifications:cross-machine-delivery");
+}
 
 /** Timeout for the peer forward POST — fail fast to the local fallback. */
 export const FORWARD_TIMEOUT_MS = 3_000;
@@ -87,7 +101,7 @@ export async function forwardOrLocal(
   try {
     peer = await deps.lookupPeer(targetMachine);
   } catch (err) {
-    log.warn(
+    getLog().warn(
       { targetMachine, err: err instanceof Error ? err.message : String(err) },
       "cross-machine forward: peer lookup failed — falling back to local delivery",
     );
@@ -95,7 +109,7 @@ export async function forwardOrLocal(
   }
 
   if (!peer) {
-    log.warn(
+    getLog().warn(
       { targetMachine },
       "cross-machine forward: target peer not in registry — falling back to local delivery",
     );
@@ -120,16 +134,16 @@ export async function forwardOrLocal(
       signal: AbortSignal.timeout(FORWARD_TIMEOUT_MS),
     });
     if (!res.ok) {
-      log.warn(
+      getLog().warn(
         { targetMachine, url, status: res.status },
         "cross-machine forward: peer returned non-2xx — falling back to local delivery",
       );
       return false;
     }
-    log.info({ targetMachine, url, id: notification.id }, "cross-machine forward: peer accepted");
+    getLog().info({ targetMachine, url, id: notification.id }, "cross-machine forward: peer accepted");
     return true;
   } catch (err) {
-    log.warn(
+    getLog().warn(
       {
         targetMachine,
         url,
