@@ -17,4 +17,4 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: `pnpm typecheck` + `bun test packages/core apps/agent/src/integrations` green; paste output. [type:testing] [beads:nx-66zse]
+- [x] 2.1 Verify: `pnpm typecheck` + `bun test packages/core apps/agent/src/integrations` green; paste output. [type:testing] [beads:nx-66zse]
