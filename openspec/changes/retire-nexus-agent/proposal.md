@@ -26,9 +26,9 @@ audit of what it actually carries found the value has drained out of every lane 
   imports.
 
 The one capability with no second path is **TTS**: Kokoro and ElevenLabs are reachable only
-through the agent's notification manager. That capability moves to a dedicated kokoro hook
-served from the homelab and piped through `leonardoacosta/herdr-shepherd`, which is the
-subject of the three sibling proposals this one depends on.
+through the agent's notification manager. That capability moves wholesale to
+`leonardoacosta/herdr-shepherd`, which owns the kokoro service, the pipe, and the voice state —
+the subject of the sibling proposals this one depends on.
 
 Everything else the agent carries — cross-machine session listing, health history, `/analytics/*`,
 APNs push, the Swift dashboard suite — is being retired rather than ported.
@@ -46,17 +46,17 @@ the agent or dropping the database first would destroy the import's only source.
 - base-commit: nexus@3b726e62
 
 **Scope boundary — this proposal is the nx-side decommission ONLY.** Leo's 2026-07-25 decision
-was one proposal per repo. The other two are authored from their own repo roots:
+was one proposal per repo, with kokoro managed entirely from herdr-shepherd. The other two are
+authored from their own repo roots:
 
 | Order | Repo | Proposal | Owns |
 | --- | --- | --- | --- |
-| 1 | `~/dev/personal/homelab` | `homelab-kokoro-service` (authored, `hl-0dx8`) | Stand up the kokoro container on the homelab box |
-| 2 | `leonardoacosta/herdr-shepherd` | `herdr-shepherd-kokoro-notify` (authored, `hs-2vk`) | `plugins/herdr-state/pkg/notify` + `bin/notify.sh` pipe + notify board |
-| 3 | `~/dev/cc` | `cc-kokoro-notify-replace-nx-send` (authored, `cc-wlm13`) | New `say_notify` calling the herdr pipe, delete `nx-send.sh` and its 25 call sites, repoint `BASH_ENV` + the TTS-Summary output style, sweep 38 doc refs |
-| 4 | `~/dev/personal/nexus` | **this proposal** | Stop and remove the agent, units, Swift/web surfaces, and data |
+| 1 | `leonardoacosta/herdr-shepherd` | `herdr-shepherd-kokoro-notify` (authored, `hs-2vk`) | The whole TTS capability — kokoro service definition + lifecycle, `bin/notify.sh` pipe, `pkg/notify` state, notify board |
+| 2 | `~/dev/cc` | `cc-kokoro-notify-replace-nx-send` (authored, `cc-wlm13`) | New `say_notify` calling the herdr pipe, delete `nx-send.sh` and its 25 call sites, repoint `BASH_ENV` + the TTS-Summary output style, sweep 38 doc refs |
+| 3 | `~/dev/personal/nexus` | **this proposal** | Stop and remove the agent, units, Swift/web surfaces, and data |
 
-Ordering is strict: kokoro serves, then the herdr pipe ships, then cc cuts over and is verified
-speaking, then this proposal executes. Nothing here runs while cc still routes TTS through the
+Ordering is strict: herdr-shepherd stands up kokoro and ships the pipe, then cc cuts over and is
+verified speaking, then this proposal executes. Nothing here runs while cc still routes TTS through the
 agent. Delivery model is homelab-synthesizes / Mac-plays; the pipe owns that hop.
 
 **Replacement scope is speak-only** (Leo's decision). The agent's `notifications/` tree is ~40
@@ -70,16 +70,17 @@ tradeoff was chosen explicitly over porting the guards.
 Every probe below must pass before task 1.1 runs. These are environmental assumptions this
 proposal depends on, not things it creates.
 
-| Probe | Expected |
-| --- | --- |
-| `curl -sf -o /dev/null -w '%{http_code}' "$HERDR_KOKORO_URL/health"` | `200` |
-| `systemctl --user is-active nexus-agent` | `active` (the thing being retired is currently up) |
-| `test -e ~/dev/cc/scripts/lib/nx-send.sh; echo $?` | `1` — cc deleted the transport, so no caller can still reach the agent |
-| `grep -c '^- \[ \]' ~/dev/cc/openspec/changes/cc-kokoro-notify-replace-nx-send/tasks.md` | `0` — cc cutover complete and verified speaking |
-| `psql "$POSTGRES_URL" -tAc "select count(*) from health_snapshots"` | non-zero integer (DB reachable for the dump) |
-| `grep -c '^- \[ \]' ~/dev/personal/herdr-shepherd/openspec/changes/inhouse-credential-subsystem/tasks.md` | `0` — every task complete, including 4.1's real import against the live Postgres store and 4.2's nexus-agent-stopped verification |
-| `git -C ~/dev/personal/nexus status --porcelain \| wc -l` | `0` — clean tree before a destructive run |
-| `ls ~/.config/systemd/user/nexus-*.{service,timer}` | 4 units present (`nexus-agent`, `nexus-homelab-deploy` x2, `nexus-listener`) |
+> Every backtick-quoted token in this section is executed by /apply's drift preflight and must
+> exit 0. Prose and premise lines below therefore carry NO backticks.
+
+- `curl -sf -o /dev/null "$HERDR_KOKORO_URL/health"` → the replacement synthesis service is serving
+- `systemctl --user is-active nexus-agent` → the thing being retired is currently up
+- `test ! -e ~/dev/cc/scripts/lib/nx-send.sh` → cc deleted the transport, so no caller can still reach the agent
+- `test "$(grep -c '^- \[ \]' ~/dev/cc/openspec/changes/cc-kokoro-notify-replace-nx-send/tasks.md)" -eq 0` → cc cutover complete and verified speaking
+- `test "$(psql "$POSTGRES_URL" -tAc 'select count(*) from health_snapshots')" -gt 0` → the database is reachable for the dump
+- `test "$(grep -c '^- \[ \]' ~/dev/personal/herdr-shepherd/openspec/changes/inhouse-credential-subsystem/tasks.md)" -eq 0` → every task complete, including the real credential import against the live Postgres store and its nexus-agent-stopped verification
+- `test -z "$(git -C ~/dev/personal/nexus status --porcelain)"` → clean tree before a destructive run
+- `test "$(ls ~/.config/systemd/user/nexus-*.service ~/.config/systemd/user/nexus-*.timer 2>/dev/null | wc -l)" -eq 4` → the four units this proposal removes are present
 
 ## Testing
 
@@ -111,7 +112,7 @@ N/A — no user-facing web flow survives this change; `apps/web` is removed rath
 
 - proposal split — chosen: one proposal per repo (herdr-shepherd, cc, nx), chained by strict ordering; rejected: single cross-repo proposal, cc-only proposal with nx cleanup folded in; decided-by: leo
 - notification feature scope — chosen: speak-only, drop routing/presence/quiet-hours/meeting/throttle/held-queue/dedup/cross-machine; rejected: port quiet-hours + rate-throttle + dedup, full parity port into shepherd; decided-by: leo
-- kokoro hosting — chosen: served from the homelab, piped through herdr; rejected: kokoro on the Mac, reuse of an existing instance; decided-by: leo
+- kokoro hosting — chosen: managed entirely from herdr-shepherd, running on the homelab box as execution host; rejected: kokoro on the Mac, reuse of an existing instance, and a separate homelab-repo proposal for the container (authored that way in error, reverted in homelab f8b9b58); decided-by: leo
 - shepherd repo identity — chosen: `leonardoacosta/herdr-shepherd` (repo created 2026-07-25); rejected: folding the service into homelab or cc; decided-by: leo
 - delta capability shape — chosen: one new `nexus-decommission` capability using `## ADDED Requirements`; rejected: `## REMOVED Requirements` deltas against the 92 existing capabilities (the misplaced-REMOVED-header class already cost this repo one fix commit, nx-z92vl / 084f8ea2); decided-by: default
 - `stack:` value — chosen: `infra` (teardown is units/data/deploy work; batches read as provision/wire/surface/verify); rejected: a bun- or swift-flavored value, none of which is in the `stack:` enum; decided-by: default
