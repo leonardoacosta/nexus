@@ -187,28 +187,17 @@ channel names so Console.app shows them un-redacted.
 
 ### Requirement: Mac Settings panes MUST persist toggles to the server, not just locally
 
-Every Settings pane that displays a notification/TTS toggle backed by a `notification_settings` column MUST persist that toggle via `NexusClient.patchNotificationSettings()` using the server's snake_case field names, in addition to any local `UserDefaults`/`SettingsStore` cache. A pane MUST NOT rely on local persistence alone for a value that has a server-side column.
+Every UI surface that flips a notification/TTS setting — the Settings panes AND the NotificationDrawer quick toggles — SHALL persist the change to the agent via the settings PATCH so it round-trips through `SettingsChanged` to all peers. A local-only (`@AppStorage`-only) toggle write is a defect: the next inbound reconciliation silently reverts it.
 
-#### Scenario: SettingsTtsView toggle reaches the server
+#### Scenario: Drawer TTS quick-toggle persists
 
-- **GIVEN** `SettingsTtsView` is open and `ttsEnabled` is currently `true` server-side
-- **WHEN** the user toggles "TTS enabled" off
-- **THEN** `NexusClient.patchNotificationSettings({"tts_enabled": false})` is called
-- **AND** `GET /notifications/settings` subsequently returns `tts_enabled: false`
+- **WHEN** the user flips the TTS toggle in the NotificationDrawer
+- **THEN** the agent receives a settings PATCH carrying `tts_enabled`, and a subsequent inbound `SettingsChanged` reflects (not reverts) the user's choice
 
-#### Scenario: NotificationsView's PATCH uses real field names
+#### Scenario: Settings pane and drawer toggle are equivalent
 
-- **GIVEN** `NotificationsView` is open and the user changes meeting-mode, signal-only, or suppression-minutes
-- **WHEN** `persist()` runs
-- **THEN** the PATCH body uses `meeting_mode`, `signal_only`, `suppression_minutes` (not `meetingMode`/`signalOnly`/`suppressionMinutes`)
-- **AND** the server responds `200 OK` (not `400`)
-
-#### Scenario: A failed PATCH surfaces a visible error, not a false success
-
-- **GIVEN** the agent is unreachable or returns a non-2xx response to a settings PATCH
-- **WHEN** `persist()`'s PATCH call fails
-- **THEN** the UI shows a visible error state
-- **AND** the UI MUST NOT show "Saved" for a PATCH that did not succeed
+- **WHEN** the same setting is flipped from the Settings pane or from the drawer
+- **THEN** both paths produce the same PATCH and the same observer behavior
 
 ### Requirement: TTSObserver MUST observe remote settings changes live
 
@@ -309,4 +298,22 @@ synth-latency window to synthesize and start playback with no coordination betwe
 - **THEN** its synthesis and playback are deferred until the first clip's `onPlaybackFinished`
   fires, then it plays in full (queue-and-play-sequentially — decided in tasks.md task 1.1,
   by:leo) — never an uncoordinated race with the first clip
+
+### Requirement: Synthesis failures never crash the listener
+
+Every failure on the TTS synthesis path — including a malformed or non-URL-safe voice id from a project voice override — SHALL surface as a thrown error that the provider chain catches and degrades from, never as a force-unwrap trap.
+
+#### Scenario: Malformed voice override degrades gracefully
+
+- **WHEN** a project voice override resolves to a voice id that cannot form a valid request URL
+- **THEN** the ElevenLabs client throws, the provider chain advances (or degrades to signal-only), and the app does not crash
+
+### Requirement: Replay playback state tracks the audible clip
+
+The replay UI's playing-state (`currentlyPlayingId`) SHALL always name the clip that is actually audible. When a live TTS clip supersedes a manual replay, the superseded replay's id is cleared immediately — not at clip end.
+
+#### Scenario: Live clip supersedes a manual replay
+
+- **WHEN** a manual replay is playing and a live TTS clip supersedes it
+- **THEN** the replay row's stop icon reverts to play, and tapping the row does not stop the unrelated live clip
 
