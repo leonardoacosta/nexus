@@ -69,7 +69,7 @@ final class NotificationAudioFieldTests: XCTestCase {
         }
         """
         let n = try decode(NotificationEvent.self, from: json)
-        XCTAssertEqual(n.audioAvailable, false, "DELIBERATE CI VERIFICATION FAILURE — wire-macos-swift-ci task 2.1, self-hosted runner, revert before merge")
+        XCTAssertEqual(n.audioAvailable, true, "audioAvailable decodes the boolean")
         XCTAssertEqual(
             n.voiceUsed,
             "21m00Tcm4TlvDq8ikWAM",
