@@ -82,6 +82,11 @@ afterAll(() => {
   fetchWithTimeoutMock.mockRestore();
   if (savedEnvKey === undefined) delete process.env.NEXUS_ENCRYPTION_KEY;
   else process.env.NEXUS_ENCRYPTION_KEY = savedEnvKey;
+  // Undo the getAgentId stub — mock.module is process-global and
+  // last-writer-wins, so leaving "test-agent" in place leaks into any
+  // sibling suite that runs after this file and calls the real getAgentId()
+  // (nx-9qsmb.11: broke apps/agent/src/db/agent-registry.test.ts on CI).
+  mock.module("@nexus/core/node", () => coreNode);
 });
 
 // ─── Fake DB ──────────────────────────────────────────────────────────────

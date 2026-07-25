@@ -66,6 +66,11 @@ afterAll(() => {
   restore("NEXUS_ENCRYPTION_KEY", savedEnvKey);
   restore("ELEVENLABS_API_KEY", savedApiKey);
   restore("ELEVENLABS_VOICE_ID", savedVoiceId);
+  // Undo the getAgentId stub — mock.module is process-global and
+  // last-writer-wins, so leaving "test-agent" in place leaks into any
+  // sibling suite that runs after this file and calls the real getAgentId()
+  // (nx-9qsmb.11: broke apps/agent/src/db/agent-registry.test.ts on CI).
+  mock.module("@nexus/core/node", () => coreNode);
 });
 
 describe("resolveElevenLabsCredential", () => {

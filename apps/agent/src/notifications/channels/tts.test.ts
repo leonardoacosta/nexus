@@ -68,6 +68,11 @@ afterAll(() => {
   } catch {
     // best-effort cleanup
   }
+  // Undo the getAgentId stub — mock.module is process-global and
+  // last-writer-wins, so leaving "test-agent" in place leaks into any
+  // sibling suite that runs after this file and calls the real getAgentId()
+  // (nx-9qsmb.11: broke apps/agent/src/db/agent-registry.test.ts on CI).
+  mock.module("@nexus/core/node", () => coreNode);
 });
 
 /** Fake Db yielding no ElevenLabs credential row + a fixed project-voice override. */

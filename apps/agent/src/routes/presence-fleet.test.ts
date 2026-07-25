@@ -8,7 +8,7 @@
  * unit-tested in `services/fleet-presence.test.ts`; this asserts the wiring.
  */
 
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, afterAll } from "bun:test";
 import * as coreNode from "@nexus/core/node";
 
 const loggerMock = {
@@ -26,6 +26,14 @@ mock.module("@nexus/core/node", () => ({
   createLogger: () => loggerMock,
   getAgentId: () => "homelab",
 }));
+
+// Undo the getAgentId stub — mock.module is process-global and
+// last-writer-wins, so leaving "homelab" in place leaks into any sibling
+// suite that runs after this file and calls the real getAgentId()
+// (nx-9qsmb.11: broke apps/agent/src/db/agent-registry.test.ts on CI).
+afterAll(() => {
+  mock.module("@nexus/core/node", () => coreNode);
+});
 
 import { handleGetPresenceFleet } from "./presence-fleet";
 import type { FleetPresence } from "@nexus/db";

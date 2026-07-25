@@ -57,6 +57,15 @@ mock.module("@nexus/core/node", () => ({
   getAgentId: mock(() => "test-agent"),
 }));
 
+// Undo the getAgentId stub once this file's tests finish — mock.module is
+// process-global and last-writer-wins, so leaving "test-agent" in place
+// leaks into any sibling suite that runs after this file and calls the real
+// getAgentId() (nx-9qsmb.11: broke apps/agent/src/db/agent-registry.test.ts
+// on CI).
+afterAll(() => {
+  mock.module("@nexus/core/node", () => coreNode);
+});
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeNotification(overrides: Record<string, unknown> = {}) {
