@@ -202,9 +202,12 @@ describe("gatewayPostRelay", () => {
     // Re-import the module fresh (cache-busted query string) so it re-reads
     // process.env.MX_GATEWAY_TOKEN — the module caches the token in a
     // top-level const at import time, and the top-of-file import above ran
-    // before this test set the env var.
+    // before this test set the env var. Date.now() alone can collide with
+    // the sibling test's re-import when both run in the same millisecond
+    // (nx-4hzxd/nx-ju35c) — crypto.randomUUID() guarantees a distinct
+    // specifier so Bun never returns the other test's cached module.
     const { gatewayPostRelay: freshGatewayPostRelay } = await import(
-      `./mx-gateway?t=${Date.now()}`
+      `./mx-gateway?t=${crypto.randomUUID()}`
     );
 
     const res = await freshGatewayPostRelay({
@@ -231,7 +234,7 @@ describe("gatewayPostRelay", () => {
     }) as unknown as typeof fetch;
 
     const { gatewayPostRelay: freshGatewayPostRelay } = await import(
-      `./mx-gateway?t=${Date.now()}`
+      `./mx-gateway?t=${crypto.randomUUID()}`
     );
 
     const res = await freshGatewayPostRelay({
