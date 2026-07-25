@@ -53,9 +53,9 @@ jobs:
       - if: always()
         run: docker compose -f docker-compose.test.yml down -v
 
-  # Cheap Linux job so `macos-swift` below never dispatches a Mac runner (and
-  # never burns Blacksmith minutes) on a TS-only push — `needs` + `if` skips
-  # the whole job rather than just short-circuiting its steps.
+  # Cheap Linux job so `macos-swift` below never dispatches the Mac runner on a
+  # TS-only push — `needs` + `if` skips the whole job rather than just
+  # short-circuiting its steps.
   changes:
     name: Detect changed paths
     runs-on: ubuntu-latest
@@ -71,15 +71,25 @@ jobs:
               - 'apps/swift/**'
               - '.github/workflows/ci.yml'
 
-  # Runner is Blacksmith (blacksmith-6vcpu-macos-latest, NOT GitHub-hosted
-  # macos-14) per the wire-macos-swift-ci task 1.1 decision. Requires the
-  # Blacksmith GitHub App installed at app.blacksmith.sh — an operator
-  # prerequisite this job cannot enforce itself.
+  # Runner is Leo's own Mac, registered as a GitHub Actions self-hosted runner
+  # (name `nexus-mac-runner`, labels self-hosted/macOS/ARM64/nexus-mac). Chosen
+  # because the managed macOS options (Blacksmith, Depot) both require an
+  # org-owned repo and leonardoacosta/nexus is a personal-account repo.
+  #
+  # Consequences this job cannot enforce itself:
+  #   - The Mac must be awake and network-reachable, or the job queues until it
+  #     is. A sleeping Mac is a stalled job, not a failure.
+  #   - The runner is a launchd user agent
+  #     (actions.runner.leonardoacosta-nexus.nexus-mac-runner), managed on the
+  #     Mac via `~/actions-runner/svc.sh {status,start,stop}`. It survives
+  #     reboot but only runs while Leo's user session is loaded.
+  #   - The workspace is NOT ephemeral. Steps must stay idempotent across runs
+  #     (`brew install xcodegen` is a no-op when already present).
   macos-swift:
     name: Swift gates (nexus-mac, NexusShared)
     needs: changes
     if: needs.changes.outputs.swift == 'true'
-    runs-on: blacksmith-6vcpu-macos-latest
+    runs-on: [self-hosted, macOS, nexus-mac]
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
