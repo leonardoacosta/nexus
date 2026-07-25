@@ -21,4 +21,4 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: `cd apps/swift && xcodegen generate && xcodebuild -scheme nexus-mac test -only-testing:nexus-mac-Tests -only-testing:NexusSharedTests CODE_SIGNING_ALLOWED=NO` (or the repo's documented ssh-mac `swiftc -typecheck` contract if no Mac runner); paste pass/fail output. [type:testing] [beads:nx-wqflr]
+- [x] 2.1 Verify: `cd apps/swift && xcodegen generate && xcodebuild -scheme nexus-mac test -only-testing:nexus-mac-Tests -only-testing:NexusSharedTests CODE_SIGNING_ALLOWED=NO` (or the repo's documented ssh-mac `swiftc -typecheck` contract if no Mac runner); paste pass/fail output. [type:testing] [beads:nx-wqflr]

@@ -22,7 +22,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: `bun test packages/core apps/agent/src/integrations`, `pnpm typecheck`, `pnpm lint` green; paste output. [type:testing] [beads:nx-0qysa]
+- [x] 2.1 Verify: `bun test packages/core apps/agent/src/integrations`, `pnpm typecheck`, `pnpm lint` green; paste output. [type:testing] [beads:nx-0qysa]
 
 ## Out of scope (do not touch)
 - No auth gates on routes (`server-auth.ts` — settled by `drop-attach-secret-gate`).
