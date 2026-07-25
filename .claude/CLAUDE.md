@@ -20,6 +20,7 @@
 | Dashboard | Swift app (`apps/swift/nexus-mac`) — multi-platform dashboard reading from the agent |
 | iOS / Watch | `apps/swift/nexus-ios` + `apps/swift/nexus-watch` — companion clients sharing NexusShared |
 | NexusShared | Shared Swift framework (`apps/swift/NexusShared`) — models, networking, observers, synthesis |
+| Web dashboard | `@nexus/web` (`apps/web`) — Next.js browser dashboard. NOT the retired `apps/nextjs`, which was deleted 2026-05-17 (`ed6cf2af`, `retire-web-dashboard-infra`); any `apps/nextjs` left on disk is untracked build cruft |
 | Session | A running Claude Code instance on any machine |
 | Attach | Connect to a session — stream (read-only) or full terminal (SSH + tmux) |
 | Hook ingest | CC PreToolUse/PostToolUse/Stop events arrive via UNIX socket (`socket-server`) |
@@ -45,6 +46,8 @@ Monorepo
 │   ├── agent/             Bun daemon — socket spine, hook ingest, dispatcher, schema-drift
 │   ├── nexus-emit/        Bun helper — `nexus emit` socket client used by git hooks
 │   ├── nexus-statusline/  CC statusline extension
+│   ├── web/               `@nexus/web` — Next.js web dashboard (distinct from the
+│   │                      retired apps/nextjs, deleted 2026-05-17 in ed6cf2af)
 │   └── swift/
 │       ├── nexus-mac/     macOS menu bar dashboard
 │       ├── nexus-ios/     iOS client
