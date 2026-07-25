@@ -302,14 +302,13 @@ describe.skipIf(!hasPg)("GET /statusline — 4-mode dispatch (requires live PG)"
     await db.insert(sessions).values({
       id: "sess-known",
       // Deliberately DIFFERENT from `id` (the primary key) — this is what a
-      // real row looks like once the fix-cc-session-id-bridge dual-write
-      // lands. `?sessionId=` mode below queries by THIS column, never by the
-      // primary key. A prior version of this fixture set only `id` and
-      // queried `?sessionId=sess-known` — since `id` happened to equal the
-      // query param, `getSessionById` (the primary-key lookup, the bug this
-      // fix removes) would "work" by coincidence and the fixture would mask
-      // a real column-mismatch bug. See the "queried by primary key" test
-      // below for the regression guard this fixture change enables.
+      // bridge row looks like once the fix-cc-session-id-bridge dual-write
+      // lands. Keeping the two columns distinct is what lets the tests below
+      // tell the bridge match apart from the direct-id match; a fixture where
+      // `id` happened to equal the query param would satisfy either one by
+      // coincidence and mask a real column-mismatch bug. `?sessionId=`
+      // resolves via getSessionByCcSessionId, which matches EITHER column
+      // (1c73bab2) — both paths are covered below.
       ccSessionId: "cc-sess-known-uuid",
       projectId: projectUuid,
       machine: "test-machine",
@@ -432,15 +431,38 @@ describe.skipIf(!hasPg)("GET /statusline — 4-mode dispatch (requires live PG)"
     expect(body.error).toBe("unknown session");
   });
 
-  it("sessionId mode: 404 when queried by the row's primary-key id (not its ccSessionId)", async () => {
-    // Regression guard for the getSessionById->getSessionByCcSessionId fix:
-    // "sess-known" is this row's PRIMARY KEY, not its ccSessionId
-    // ("cc-sess-known-uuid"). Before the fix, this query would have
-    // incorrectly resolved via getSessionById (the primary-key lookup).
-    const res = await handleStatusline(db, statusUrl("?sessionId=sess-known"));
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toBe("unknown session");
+  it("sessionId mode: 200 when queried by a primary key that IS the cc session id", async () => {
+    // Contract guard for getSessionByCcSessionId's `id OR cc_session_id`
+    // match (1c73bab2). Two row shapes represent a CC session:
+    //   1. bridge rows — the primary key is nx's internal cc-<pid>-<hash> and
+    //      cc_session_id points at CC's real id (the test above queries this);
+    //   2. direct-id rows — the session-manager socket fallback sets the
+    //      primary key directly to CC's real session UUID, leaving
+    //      cc_session_id null. There is nothing to bridge; the id already IS
+    //      the value.
+    // Matching on `id` is therefore intended, NOT the primary-key-lookup bug
+    // the earlier getSessionById version had — so an `?sessionId=` hit on the
+    // primary key resolves rather than 404s.
+    const gitSpy = spyOn(gitObserver, "getObservedGitState").mockReturnValue(
+      null,
+    );
+    const recSpy = spyOn(recommendMod, "getRecommendation").mockResolvedValue({
+      recommendations: [],
+      context: { project: "proj-nx", active_spec: null, session_count: 1 },
+    });
+    try {
+      const res = await handleStatusline(db, statusUrl("?sessionId=sess-known"));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { session: SessionStatusResponse };
+      // Resolved the seeded row (model "claude-opus-4-8" → family tag "O"),
+      // proving the match landed on that row rather than composing an empty
+      // response.
+      expect(body.session.sessionId).toBe("sess-known");
+      expect(body.session.model).toBe("O");
+    } finally {
+      gitSpy.mockRestore();
+      recSpy.mockRestore();
+    }
   });
 
   // ── neither mode (additive overview) ──────────────────────────────────────
