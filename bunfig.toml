@@ -1,0 +1,11 @@
+# Root bunfig.toml.
+#
+# [test].pathIgnorePatterns excludes tests/e2e/playwright/** from bun's own
+# test-file discovery. Those are Playwright specs (test.beforeAll/test() from
+# @playwright/test, not bun:test) meant to run only via `playwright test`
+# (tests/e2e/package.json's `test:playwright` script) — a bare `bun test`
+# invoked from repo root otherwise picks them up too (bun matches *.spec.ts
+# the same as *.test.ts) and fails with "Playwright Test did not expect
+# test.beforeAll() to be called here" (nx-9qsmb.13).
+[test]
+pathIgnorePatterns = ["tests/e2e/playwright/**"]
