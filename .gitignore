@@ -28,7 +28,14 @@ apps/swift/**/Secrets.xcconfig
 # Claude
 .claude/local/
 
-docs/screenshots
+# docs/screenshots is tracked as of 2026-07-25 (nx-9qsmb.10): pruned from 56
+# files / 16MB to the 10 actually referenced by docs and tests. Keep it curated —
+# if it starts collecting unreferenced ad-hoc captures again, prune before they
+# reach history rather than re-ignoring the whole directory.
+# The negation is required because ~/.gitignore_global:11 ignores docs/screenshots/
+# for EVERY repo; this re-includes it for nx only, without touching the global file.
+!docs/screenshots/
+!docs/screenshots/**
 
 # Beads / Dolt files (added by bd init)
 .dolt/

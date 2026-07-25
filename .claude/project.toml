@@ -43,6 +43,34 @@ e2e = "bun test"
 base_branch = "main"
 push = "direct"
 
+# Authored 2026-07-25 (nx-9qsmb.10) from a read-only audit of the real tree, not
+# from /docs:init's interactive defaults. Leo settled register/diagram_format/
+# cadence directly; audience + surfaces take the schema defaults.
+[docs]
+audience = ["maintainer", "future-self"]
+register = "technical"
+surfaces = ["local"]
+diagram_format = "svg"
+sweep_cadence_days = 14
+
+# Only dirs that hold authored content are declared. docs/apply and docs/audit
+# are deliberately ABSENT: they are orchestrator runtime state (wave-plan.json,
+# events.jsonl) written by cc's /apply and /audit:waves, not documentation.
+# Declaring them would misrepresent generated state as authored docs. Relocating
+# them out of docs/ entirely is tracked separately — it needs cc's 8 write-sites
+# and nx's own apps/agent/src/routes/wave-plans.ts moved in lockstep.
+#
+# Note docs/reference, docs/guides and docs/notes do not exist here; nx's
+# authored docs grew into these dirs instead, so the manifest describes the tree
+# as it actually is rather than forcing the canon's default four.
+[docs.tree]
+nx-ui = { role = "note", desc = "design spikes + UI mockups for the nexus-mac board" }
+plan = { role = "note", archive = true, desc = "/plan:* pipeline advisory ledger (prd/scope-lock/roadmap)" }
+recon = { role = "note", desc = "external repo/tool reconnaissance" }
+wireframes = { role = "diagram", desc = "nx UI mockups/prototypes (menubar, tui)" }
+diagrams = { role = "diagram", desc = "architecture/audit visual explainers" }
+screenshots = { role = "note", desc = "curated captures referenced by docs and tests — prune unreferenced ones, do not let this collect ad-hoc output" }
+
 # --- Known gap (do not "fix" by re-narrowing UI to one engineer) ---------
 # "## UI Batch" in this repo's specs means two different things depending
 # on the spec: native Swift work (ios-session-navigation) and the
