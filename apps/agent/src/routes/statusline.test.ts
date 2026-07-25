@@ -444,7 +444,7 @@ describe.skipIf(!hasPg)("GET /statusline — 4-mode dispatch (requires live PG)"
     // the earlier getSessionById version had — so an `?sessionId=` hit on the
     // primary key resolves rather than 404s.
     const gitSpy = spyOn(gitObserver, "getObservedGitState").mockReturnValue(
-      null,
+      undefined,
     );
     const recSpy = spyOn(recommendMod, "getRecommendation").mockResolvedValue({
       recommendations: [],
