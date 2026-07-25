@@ -59,6 +59,16 @@ backup/
 # Per-project environment file (Dolt connection config, GH#2520)
 .env
 
+# Generated export — Dolt is the source of truth (nx-9qsmb.20).
+# Kept on disk for local readers (open-items etc.), never git-tracked: it is
+# rewritten on every bd write, so a tracked copy made `git pull --ff-only` in
+# deploy/hooks.d/post-merge/02-deploy fail deterministically on every machine.
+issues.jsonl
+
+# Orphaned export temps left behind when `bd export` is killed mid-flush
+*.tmp.*
+.~*.tmp.*
+
 # Legacy files (from pre-Dolt versions)
 *.db
 *.db?*
