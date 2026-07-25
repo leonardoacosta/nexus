@@ -165,7 +165,11 @@ export const SESSIONS_PROJECTS_DDL = `
     "git_owner_repo" text,
     "agent_state" text,
     "parent_session_id" text,
-    "child_role" text
+    "child_role" text,
+    "git_dirty" boolean,
+    "git_ahead" integer,
+    "git_behind" integer,
+    "is_monitor_session" boolean
   );
 
   CREATE TABLE "session_events" (

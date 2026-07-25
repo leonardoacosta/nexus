@@ -44,6 +44,7 @@
 
 import { fetchWithTimeout } from "@nexus/core/fetch";
 import { integrationMetadataSchemas, isForbiddenTtsEndpointHost } from "@nexus/core";
+import { kokoroLoopbackAllowed } from "./kokoro-loopback";
 
 /**
  * Parses `baseUrl` and reports whether it fails the same scheme/host guard
@@ -51,8 +52,12 @@ import { integrationMetadataSchemas, isForbiddenTtsEndpointHost } from "@nexus/c
  * rows persisted before the schema-level check existed
  * (`harden-kokoro-baseurl`) so a stale forbidden `baseUrl` never reaches
  * `fetch` even if it slipped past validation on write.
+ *
+ * `allowLoopback` relaxes the host half only (scheme is always enforced) and
+ * is passed exclusively by the kokoro descriptor below, from
+ * `kokoroLoopbackAllowed()` — the `NEXUS_KOKORO_ALLOW_LOOPBACK` escape hatch.
  */
-function isForbiddenBaseUrl(baseUrl: string): boolean {
+function isForbiddenBaseUrl(baseUrl: string, allowLoopback = false): boolean {
   let url: URL;
   try {
     url = new URL(baseUrl);
@@ -60,6 +65,7 @@ function isForbiddenBaseUrl(baseUrl: string): boolean {
     return true;
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return true;
+  if (allowLoopback) return false;
   return isForbiddenTtsEndpointHost(url.hostname);
 }
 
@@ -146,7 +152,7 @@ export const PROVIDER_DESCRIPTORS: Record<string, ProviderDescriptor> = {
     requiresSecret: false,
     testProbe: async (_secret, metadata) => {
       const baseUrl = typeof metadata.baseUrl === "string" ? metadata.baseUrl : "";
-      if (!baseUrl || isForbiddenBaseUrl(baseUrl)) {
+      if (!baseUrl || isForbiddenBaseUrl(baseUrl, kokoroLoopbackAllowed())) {
         return { ok: false, statusCode: null };
       }
       try {
@@ -162,7 +168,7 @@ export const PROVIDER_DESCRIPTORS: Record<string, ProviderDescriptor> = {
     },
     listVoices: async (_secret, metadata) => {
       const baseUrl = typeof metadata.baseUrl === "string" ? metadata.baseUrl : "";
-      if (!baseUrl || isForbiddenBaseUrl(baseUrl)) {
+      if (!baseUrl || isForbiddenBaseUrl(baseUrl, kokoroLoopbackAllowed())) {
         return { ok: false, statusCode: null, voices: [] };
       }
       try {

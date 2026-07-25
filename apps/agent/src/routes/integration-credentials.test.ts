@@ -63,9 +63,24 @@ function setKey(key: Buffer | undefined): void {
   else delete process.env.NEXUS_ENCRYPTION_KEY;
 }
 
+// The kokoro fixtures below deliberately use `http://127.0.0.1:8880` — the
+// realistic same-host local-dev deployment. `harden-kokoro-baseurl`'s
+// loopback guard rejects it, so these suites opt out via the escape hatch that
+// proposal pre-authorized (§ Decision). Set per-describe and cleared in
+// afterEach so it never leaks into `registry.test.ts`, whose forbidden-host
+// cases must still reject.
+const savedLoopbackFlag = process.env.NEXUS_KOKORO_ALLOW_LOOPBACK;
+
+function setKokoroLoopback(on: boolean): void {
+  if (on) process.env.NEXUS_KOKORO_ALLOW_LOOPBACK = "1";
+  else delete process.env.NEXUS_KOKORO_ALLOW_LOOPBACK;
+}
+
 afterAll(() => {
   if (savedEnvKey === undefined) delete process.env.NEXUS_ENCRYPTION_KEY;
   else process.env.NEXUS_ENCRYPTION_KEY = savedEnvKey;
+  if (savedLoopbackFlag === undefined) delete process.env.NEXUS_KOKORO_ALLOW_LOOPBACK;
+  else process.env.NEXUS_KOKORO_ALLOW_LOOPBACK = savedLoopbackFlag;
 });
 
 // ─── Fake DB ──────────────────────────────────────────────────────────────
@@ -319,10 +334,12 @@ describe("integration-credentials — kokoro secretless test path", () => {
 
   beforeEach(() => {
     setKey(STUB_KEY);
+    setKokoroLoopback(true);
     fetchSpy = spyOn(globalThis, "fetch");
   });
 
   afterEach(() => {
+    setKokoroLoopback(false);
     fetchSpy.mockRestore();
   });
 
@@ -442,10 +459,12 @@ describe("integration-credentials — GET /integrations/:provider/voices", () =>
 
   beforeEach(() => {
     setKey(STUB_KEY);
+    setKokoroLoopback(true);
     fetchSpy = spyOn(globalThis, "fetch");
   });
 
   afterEach(() => {
+    setKokoroLoopback(false);
     fetchSpy.mockRestore();
   });
 

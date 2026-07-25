@@ -83,6 +83,14 @@ export function parseQualifiedVoice(id: string): QualifiedVoice {
  * That would need resolve-then-pin fetch plumbing; exposure is tailnet-only
  * (the operator's own devices), so it isn't worth the complexity today. If
  * the threat model changes, that's a new proposal, not an extension here.
+ *
+ * Escape hatch: `harden-kokoro-baseurl`'s proposal (§ Decision) pre-authorized
+ * `NEXUS_KOKORO_ALLOW_LOOPBACK=1` for the legitimate local-dev case (kokoro on
+ * the agent host itself, `http://127.0.0.1:8880`) — the regression this guard
+ * caused in `apps/agent/src/routes/integration-credentials.test.ts`. The env
+ * read lives in `apps/agent` (`integrations/kokoro-loopback.ts`); this helper
+ * stays a pure, always-strict predicate. Callers opt out, it never opts out
+ * for them, and the opt-out is kokoro-only.
  */
 export function isForbiddenTtsEndpointHost(hostname: string): boolean {
   const host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
@@ -99,19 +107,22 @@ export function isForbiddenTtsEndpointHost(hostname: string): boolean {
  * above). Any future `requiresSecret: false` provider with a user-supplied
  * endpoint URL should reuse this schema rather than re-deriving the check.
  */
-const ttsEndpointBaseUrl = z.string().refine(
-  (v) => {
-    let url: URL;
-    try {
-      url = new URL(v);
-    } catch {
-      return false;
-    }
-    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-    return !isForbiddenTtsEndpointHost(url.hostname);
-  },
-  { message: "baseUrl must be an http(s) URL with a non-loopback, non-link-local host" },
-);
+function ttsEndpointBaseUrl(allowLoopback = false) {
+  return z.string().refine(
+    (v) => {
+      let url: URL;
+      try {
+        url = new URL(v);
+      } catch {
+        return false;
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+      if (allowLoopback) return true;
+      return !isForbiddenTtsEndpointHost(url.hostname);
+    },
+    { message: "baseUrl must be an http(s) URL with a non-loopback, non-link-local host" },
+  );
+}
 
 /**
  * Per-provider Zod schemas for the `metadata` JSONB column. Each provider's
@@ -125,10 +136,22 @@ export const integrationMetadataSchemas: Record<
 > = {
   telegram: z.object({ chatId: z.string().min(1) }),
   kokoro: z.object({
-    baseUrl: ttsEndpointBaseUrl,
+    baseUrl: ttsEndpointBaseUrl(),
     defaultVoice: z.string().min(1).optional(),
   }),
 };
+
+/**
+ * Loopback-permissive twin of `integrationMetadataSchemas.kokoro`, used ONLY
+ * when `apps/agent` observes `NEXUS_KOKORO_ALLOW_LOOPBACK=1`
+ * (`integrations/kokoro-loopback.ts`). Scheme validation is unchanged — this
+ * relaxes the loopback/link-local host check and nothing else, for kokoro and
+ * no other provider (`harden-kokoro-baseurl` § Decision escape hatch).
+ */
+export const kokoroMetadataSchemaAllowingLoopback = z.object({
+  baseUrl: ttsEndpointBaseUrl(true),
+  defaultVoice: z.string().min(1).optional(),
+});
 
 /**
  * GET /integrations/:provider/credentials response (also returned by PATCH on

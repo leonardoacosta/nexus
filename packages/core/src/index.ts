@@ -88,6 +88,7 @@ export {
   TTS_CAPABLE_INTEGRATION_PROVIDERS,
   TTS_VOICE_PROVIDERS,
   integrationMetadataSchemas,
+  kokoroMetadataSchemaAllowingLoopback,
   integrationCredentialsResponse,
   integrationPatchInput,
   parseQualifiedVoice,

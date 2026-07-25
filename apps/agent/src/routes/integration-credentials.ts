@@ -26,11 +26,12 @@ import { randomUUID } from "node:crypto";
 import type { Db } from "@nexus/db";
 import { integrationCredentials } from "@nexus/db";
 import { logger, getAgentId } from "@nexus/core/node";
-import { integrationPatchInput } from "@nexus/core";
+import { integrationPatchInput, kokoroMetadataSchemaAllowingLoopback } from "@nexus/core";
 import type { IntegrationCredentialsResponse } from "@nexus/core";
 import { and, eq } from "drizzle-orm";
 
 import { PROVIDER_DESCRIPTORS } from "../integrations/registry";
+import { kokoroLoopbackAllowed } from "../integrations/kokoro-loopback";
 import { decrypt, encrypt, tryLoadEncryptionKey } from "../credentials/encryption";
 import { withCors } from "../server-origin";
 
@@ -130,9 +131,17 @@ export async function handlePatchCredentials(
     return jsonResponse({ error: "no fields supplied" }, 400);
   }
 
-  // Validate metadata against the provider schema BEFORE any write.
+  // Validate metadata against the provider schema BEFORE any write. Kokoro
+  // swaps in the loopback-permissive twin under NEXUS_KOKORO_ALLOW_LOOPBACK=1
+  // so the escape hatch covers the write path too, not just the probe guard —
+  // otherwise a local-dev operator could never persist 127.0.0.1 in the first
+  // place (`harden-kokoro-baseurl` § Decision).
   if (metadata !== undefined) {
-    const metaParsed = descriptor.metadataSchema.safeParse(metadata);
+    const schema =
+      provider === "kokoro" && kokoroLoopbackAllowed()
+        ? kokoroMetadataSchemaAllowingLoopback
+        : descriptor.metadataSchema;
+    const metaParsed = schema.safeParse(metadata);
     if (!metaParsed.success) {
       return jsonResponse(
         { error: "invalid metadata", detail: metaParsed.error.issues },
