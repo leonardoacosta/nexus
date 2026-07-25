@@ -163,3 +163,5 @@ public struct UnlinkedBeadsResponse: Decodable, Sendable {
 
     private enum CodingKeys: String, CodingKey { case unlinked }
 }
+
+// ci-scratch: self-hosted runner verification (temporary, scratch branch only)
