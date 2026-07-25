@@ -280,17 +280,6 @@ export function createSocketEventDispatcher(
           );
         }
 
-        log.info(
-          {
-            message: event.message,
-            messageType,
-            channels: effectiveChannels,
-            project,
-            hasQuestion: !!event.question,
-          },
-          "socket: notification",
-        );
-
         // Agent-state spine (session-enrichment): a session-scoped Notification
         // means the agent is awaiting user input (permission prompt / idle) →
         // `waiting`. Project-level notifications with no session_id carry no
