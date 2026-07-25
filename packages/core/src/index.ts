@@ -90,6 +90,7 @@ export {
   integrationCredentialsResponse,
   integrationPatchInput,
   parseQualifiedVoice,
+  isForbiddenTtsEndpointHost,
 } from "./types/integrations";
 export type {
   IntegrationCredentialsResponse,

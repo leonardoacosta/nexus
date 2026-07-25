@@ -53,24 +53,44 @@ jobs:
       - if: always()
         run: docker compose -f docker-compose.test.yml down -v
 
-# ── macOS Swift job (STRETCH — not wired) ─────────────────────────────
-# Requires a macOS runner (GitHub-hosted `macos-14` is metered, or a
-# self-hosted Mac). When a runner is available, uncomment and finish:
-#
-#   macos-swift:
-#     name: Swift gates (nexus-mac, NexusShared)
-#     runs-on: macos-14
-#     steps:
-#       - uses: actions/checkout@v4
-#       - run: brew install xcodegen
-#       - run: cd apps/swift && xcodegen generate
-#       - run: |
-#           xcodebuild test \
-#             -project apps/swift/nexus.xcodeproj \
-#             -scheme nexus-mac \
-#             -destination 'platform=macOS' \
-#             -only-testing:nexus-mac-Tests \
-#             -only-testing:NexusSharedTests \
-#             CODE_SIGNING_ALLOWED=NO
-#
+  # Cheap Linux job so `macos-swift` below never dispatches a Mac runner (and
+  # never burns Blacksmith minutes) on a TS-only push — `needs` + `if` skips
+  # the whole job rather than just short-circuiting its steps.
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      swift: ${{ steps.filter.outputs.swift }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            swift:
+              - 'apps/swift/**'
+              - '.github/workflows/ci.yml'
+
+  # Runner is Blacksmith (blacksmith-6vcpu-macos-latest, NOT GitHub-hosted
+  # macos-14) per the wire-macos-swift-ci task 1.1 decision. Requires the
+  # Blacksmith GitHub App installed at app.blacksmith.sh — an operator
+  # prerequisite this job cannot enforce itself.
+  macos-swift:
+    name: Swift gates (nexus-mac, NexusShared)
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: blacksmith-6vcpu-macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: cd apps/swift && xcodegen generate
+      - run: |
+          xcodebuild test \
+            -project apps/swift/nexus.xcodeproj \
+            -scheme nexus-mac \
+            -destination 'platform=macOS' \
+            -only-testing:nexus-mac-Tests \
+            -only-testing:NexusSharedTests \
+            CODE_SIGNING_ALLOWED=NO
+
 # Follow-up: iOS/watch bundle coverage is a separate gap — see plans/014.

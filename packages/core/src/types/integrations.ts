@@ -61,6 +61,49 @@ export function parseQualifiedVoice(id: string): QualifiedVoice {
 }
 
 /**
+ * Rejects loopback (`localhost`, `127.0.0.0/8`, `::1`) and link-local
+ * (`169.254.0.0/16`, `fe80::/10`) literal hostnames — the addresses that let a
+ * tailnet peer PATCH a TTS endpoint `baseUrl` to reach services on the agent
+ * host itself rather than a real TTS deployment (`harden-kokoro-baseurl`).
+ * RFC1918 and tailnet (100.64.0.0/10) hosts are NOT rejected — self-hosted
+ * kokoro deployments legitimately live there.
+ *
+ * Accepted limitation: this is a literal-hostname check only, not a resolved
+ * one — DNS rebinding to a loopback/link-local answer is not defended against.
+ * That would need resolve-then-pin fetch plumbing; exposure is tailnet-only
+ * (the operator's own devices), so it isn't worth the complexity today. If
+ * the threat model changes, that's a new proposal, not an extension here.
+ */
+export function isForbiddenTtsEndpointHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (host === "localhost" || host === "::1") return true;
+  if (host.startsWith("127.")) return true;
+  if (host.startsWith("169.254.")) return true;
+  if (host.startsWith("fe80:")) return true;
+  return false;
+}
+
+/**
+ * Validates a TTS-endpoint `baseUrl`: scheme must be `http`/`https` and the
+ * hostname must not be loopback/link-local (`isForbiddenTtsEndpointHost`
+ * above). Any future `requiresSecret: false` provider with a user-supplied
+ * endpoint URL should reuse this schema rather than re-deriving the check.
+ */
+const ttsEndpointBaseUrl = z.string().refine(
+  (v) => {
+    let url: URL;
+    try {
+      url = new URL(v);
+    } catch {
+      return false;
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    return !isForbiddenTtsEndpointHost(url.hostname);
+  },
+  { message: "baseUrl must be an http(s) URL with a non-loopback, non-link-local host" },
+);
+
+/**
  * Per-provider Zod schemas for the `metadata` JSONB column. Each provider's
  * non-secret fields are validated against its entry before persist. Telegram
  * requires a non-empty `chatId`. Kokoro requires a valid `baseUrl` (its
@@ -72,7 +115,7 @@ export const integrationMetadataSchemas: Record<
 > = {
   telegram: z.object({ chatId: z.string().min(1) }),
   kokoro: z.object({
-    baseUrl: z.string().url(),
+    baseUrl: ttsEndpointBaseUrl,
     defaultVoice: z.string().min(1).optional(),
   }),
 };

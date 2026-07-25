@@ -12,13 +12,39 @@
  * The generic routes in `routes/integration-credentials.ts` dispatch off this
  * map — an unregistered provider is a 404 before any DB access.
  *
+ * Any `requiresSecret: false` provider whose metadata includes a
+ * user-supplied endpoint URL (like kokoro's `baseUrl`) MUST validate it with
+ * the shared `isForbiddenTtsEndpointHost` guard (`@nexus/core`) — both at the
+ * schema layer (`integrationMetadataSchemas`) and again before every fetch in
+ * `testProbe`/`listVoices`, the same double-gate kokoro uses below. Skipping
+ * either layer reopens the tailnet-peer-reaches-loopback surface
+ * `harden-kokoro-baseurl` closed.
+ *
  * See design.md § ProviderDescriptor shape.
  *
  * Spec: openspec/changes/add-integration-registry/
  */
 
 import { fetchWithTimeout } from "@nexus/core/fetch";
-import { integrationMetadataSchemas } from "@nexus/core";
+import { integrationMetadataSchemas, isForbiddenTtsEndpointHost } from "@nexus/core";
+
+/**
+ * Parses `baseUrl` and reports whether it fails the same scheme/host guard
+ * the schema enforces (`isForbiddenTtsEndpointHost`, `@nexus/core`). Guards
+ * rows persisted before the schema-level check existed
+ * (`harden-kokoro-baseurl`) so a stale forbidden `baseUrl` never reaches
+ * `fetch` even if it slipped past validation on write.
+ */
+function isForbiddenBaseUrl(baseUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return true;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return true;
+  return isForbiddenTtsEndpointHost(url.hostname);
+}
 
 /**
  * The zod schema type, derived from the shared metadata-schema map so the
@@ -103,7 +129,9 @@ export const PROVIDER_DESCRIPTORS: Record<string, ProviderDescriptor> = {
     requiresSecret: false,
     testProbe: async (_secret, metadata) => {
       const baseUrl = typeof metadata.baseUrl === "string" ? metadata.baseUrl : "";
-      if (!baseUrl) return { ok: false, statusCode: null };
+      if (!baseUrl || isForbiddenBaseUrl(baseUrl)) {
+        return { ok: false, statusCode: null };
+      }
       try {
         const res = await fetchWithTimeout(`${baseUrl}/v1/audio/voices`, {
           method: "GET",
@@ -117,7 +145,9 @@ export const PROVIDER_DESCRIPTORS: Record<string, ProviderDescriptor> = {
     },
     listVoices: async (_secret, metadata) => {
       const baseUrl = typeof metadata.baseUrl === "string" ? metadata.baseUrl : "";
-      if (!baseUrl) return { ok: false, statusCode: null, voices: [] };
+      if (!baseUrl || isForbiddenBaseUrl(baseUrl)) {
+        return { ok: false, statusCode: null, voices: [] };
+      }
       try {
         const res = await fetchWithTimeout(`${baseUrl}/v1/audio/voices`, {
           method: "GET",
