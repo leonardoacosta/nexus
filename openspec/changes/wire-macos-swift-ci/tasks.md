@@ -14,4 +14,7 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: open a PR with a deliberate one-line Swift test failure — job red; revert — job green. Paste both run links and the observed job duration/minutes cost. [type:testing] [beads:nx-v4fj6]
+- [x] 2.1 Verify: open a PR with a deliberate one-line Swift test failure — job red; revert — job green. Paste both run links and the observed job duration/minutes cost. [type:testing] [beads:nx-v4fj6]
+  - RED: gh run 30144990615 — Swift gates job failure, real XCTAssertEqual failure (1/191 tests), confirmed not an infra error. Job ran ~2s of actual test time before failing.
+  - GREEN: gh run 30158515305 — Swift gates job success, 25s wall clock (Detect changed paths 12:46:10→12:46:16, Swift gates 12:46:18→12:46:43).
+  - Hardening found + fixed along the way: the runner's launchd service had no sleep-prevention, causing a ~1.5hr hung xcodebuild run mid-verification when the Mac slept. Wrapped `~/Library/LaunchAgents/actions.runner.leonardoacosta-nexus.nexus-mac-runner.plist`'s ProgramArguments in `caffeinate -s` (backup at /tmp/nexus-mac-runner.plist.bak on the Linux side); confirmed via `ps aux` that caffeinate now wraps runsvc.sh. Re-verified green after the fix.
