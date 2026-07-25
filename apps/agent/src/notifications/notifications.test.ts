@@ -1,9 +1,24 @@
 /**
- * Notification system tests.
+ * Notification system tests — meeting state + project-aware routing (pure
+ * logic, no database).
  *
- * DB-dependent tests (buffer CRUD, manager lifecycle) are skipped because
- * they require a live PostgreSQL connection. Meeting state and routing rule
- * tests are pure logic and run without a database.
+ * The two `describe.skip("… requires live PG")` blocks that used to sit here
+ * held 11 always-true placeholder bodies — permanently skipped, asserting
+ * nothing, and reading as coverage. Removed by `tts-degradation-test-coverage`
+ * task 1.3 after confirming (or writing) real coverage for every named
+ * behavior:
+ *
+ *   Buffer CRUD    → `buffer.test.ts` (fake-db drizzle-chain assertions).
+ *                    insert / mark-delivered / mark-expired / get-by-id-null
+ *                    already existed; get-by-id-hit, query-by-status, and the
+ *                    created_at-ascending ordering were WRITTEN there, since
+ *                    `queryNotificationsByStatus` had no test at all.
+ *   Meeting gate   → `manager-meeting-behavior.test.ts` (WRITTEN — the
+ *                    drop/allow branches at `manager.ts:334-352` were
+ *                    uncovered), plus `rules-engine.test.ts` Rule 2 and
+ *                    `manager-presence.test.ts` for the presence-aware hold.
+ *   Buffer/flush   → `manager.integration.test.ts` (meeting hold + coalesced
+ *                    flush) and `held-queue.test.ts` (durable hold, flushDue).
  */
 
 import { describe, expect, it, beforeEach } from "bun:test";
@@ -25,34 +40,6 @@ function makeNotification(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
-
-// ─── Buffer CRUD (requires live PG) ─────────────────────────────────────────
-
-describe.skip("notification buffer (requires live PG)", () => {
-  it("inserts a notification and retrieves it by id", () => {
-    expect(true).toBe(true);
-  });
-
-  it("queries notifications by status", () => {
-    expect(true).toBe(true);
-  });
-
-  it("marks a notification as delivered", () => {
-    expect(true).toBe(true);
-  });
-
-  it("marks a notification as expired", () => {
-    expect(true).toBe(true);
-  });
-
-  it("returns null for non-existent notification", () => {
-    expect(true).toBe(true);
-  });
-
-  it("returns queued notifications ordered by created_at ascending", () => {
-    expect(true).toBe(true);
-  });
-});
 
 // ─── Meeting state (pure logic) ─────────────────────────────────────────────
 
@@ -84,30 +71,6 @@ describe("meeting state", () => {
     const activeStatus = state.status();
     expect(activeStatus.active).toBe(true);
     expect(typeof activeStatus.started_at).toBe("string");
-  });
-});
-
-// ─── Buffer/flush lifecycle (requires live PG) ─────────────────────────────
-
-describe.skip("notification manager — buffer/flush lifecycle (requires live PG)", () => {
-  it("delivers notification immediately when not in a meeting", () => {
-    expect(true).toBe(true);
-  });
-
-  it("buffers notifications during a meeting", () => {
-    expect(true).toBe(true);
-  });
-
-  it("flushes buffered notifications when meeting ends", () => {
-    expect(true).toBe(true);
-  });
-
-  it("drops notifications during meeting when rule says drop", () => {
-    expect(true).toBe(true);
-  });
-
-  it("allows notifications during meeting when rule says allow", () => {
-    expect(true).toBe(true);
   });
 });
 

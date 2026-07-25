@@ -153,6 +153,25 @@ describe("handlePutVoice", () => {
     bus.cleanup();
   });
 
+  it("rejects an over-long voice_id with an error naming the cap", async () => {
+    // `VOICE_ID_MAX` is 100 in notifications-voices.ts; assert against the
+    // literal so a silent cap change fails this test rather than tracking it.
+    const db = makeFakeDb();
+    const res = await handlePutVoice(
+      db,
+      "nx",
+      new Request("http://x", {
+        method: "PUT",
+        body: JSON.stringify({ voice_id: "v".repeat(101) }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toContain("100");
+    expect(body.error).toContain("voice_id");
+    bus.cleanup();
+  });
+
   it("inserts a new override and emits the bus event", async () => {
     const db = makeFakeDb();
     const res = await handlePutVoice(

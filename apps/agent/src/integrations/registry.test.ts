@@ -8,6 +8,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { INTEGRATION_PROVIDERS, TTS_VOICE_PROVIDERS } from "@nexus/core";
 import { PROVIDER_DESCRIPTORS } from "./registry";
 
 const kokoro = PROVIDER_DESCRIPTORS.kokoro!;
@@ -23,6 +24,38 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+/**
+ * `derive-tts-provider-lists` — membership pins. The provider lists live in
+ * three places that no compiler cross-checks (`INTEGRATION_PROVIDERS`,
+ * `PROVIDER_DESCRIPTORS`, `TTS_VOICE_PROVIDERS`); these assertions fail loudly
+ * when one drifts from the others.
+ */
+describe("provider registry membership", () => {
+  test("every PROVIDER_DESCRIPTORS key is a known INTEGRATION_PROVIDERS id", () => {
+    const known = new Set<string>(INTEGRATION_PROVIDERS);
+    for (const key of Object.keys(PROVIDER_DESCRIPTORS)) {
+      expect(known.has(key)).toBe(true);
+    }
+  });
+
+  test("every descriptor's `provider` field matches its registry key", () => {
+    for (const [key, descriptor] of Object.entries(PROVIDER_DESCRIPTORS)) {
+      expect(descriptor.provider).toBe(key);
+    }
+  });
+
+  test("TTS_VOICE_PROVIDERS is exactly {elevenlabs, kokoro}", () => {
+    expect([...TTS_VOICE_PROVIDERS].sort()).toEqual(["elevenlabs", "kokoro"]);
+  });
+
+  test("every TTS provider except elevenlabs has a descriptor", () => {
+    for (const provider of TTS_VOICE_PROVIDERS) {
+      if (provider === "elevenlabs") continue;
+      expect(PROVIDER_DESCRIPTORS[provider]).toBeDefined();
+    }
+  });
 });
 
 describe("kokoro testProbe — forbidden baseUrl guard", () => {

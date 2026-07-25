@@ -85,6 +85,7 @@ export type {
 } from "./types/elevenlabs";
 export {
   INTEGRATION_PROVIDERS,
+  TTS_CAPABLE_INTEGRATION_PROVIDERS,
   TTS_VOICE_PROVIDERS,
   integrationMetadataSchemas,
   integrationCredentialsResponse,

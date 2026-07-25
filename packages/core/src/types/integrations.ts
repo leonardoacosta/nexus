@@ -25,17 +25,27 @@ import { z } from "zod";
 export const INTEGRATION_PROVIDERS = ["telegram", "kokoro"] as const;
 
 /**
- * Providers valid as the prefix of a qualified `provider:voice` project voice
- * override (`provider-qualified-project-voices`). `elevenlabs` predates the
- * generic integration registry (it has its own `elevenlabsCredentials` table,
- * not an `INTEGRATION_PROVIDERS` entry) but stays the implicit provider for a
- * bare, unqualified voice id — see `parseQualifiedVoice` below. `kokoro` is
- * the only `INTEGRATION_PROVIDERS` entry that supports TTS today (`telegram`
- * does not).
+ * The subset of `INTEGRATION_PROVIDERS` that can synthesize speech. `telegram`
+ * is a messaging provider and is deliberately absent. A new TTS-capable
+ * provider is added here as well as to `INTEGRATION_PROVIDERS` above.
  */
-export const TTS_VOICE_PROVIDERS: ReadonlySet<string> = new Set([
+export const TTS_CAPABLE_INTEGRATION_PROVIDERS = ["kokoro"] as const;
+
+/**
+ * Providers valid as the prefix of a qualified `provider:voice` project voice
+ * override (`provider-qualified-project-voices`). Derived from
+ * `TTS_CAPABLE_INTEGRATION_PROVIDERS` rather than hand-listed, so a new
+ * TTS-capable integration provider can never be silently omitted here
+ * (`derive-tts-provider-lists`).
+ *
+ * `elevenlabs` is the one hard-coded member: it predates the generic
+ * integration registry (it has its own `elevenlabsCredentials` table, not an
+ * `INTEGRATION_PROVIDERS` entry) but stays the implicit provider for a bare,
+ * unqualified voice id — see `parseQualifiedVoice` below.
+ */
+export const TTS_VOICE_PROVIDERS: ReadonlySet<string> = new Set<string>([
   "elevenlabs",
-  "kokoro",
+  ...TTS_CAPABLE_INTEGRATION_PROVIDERS,
 ]);
 
 /** Result of parsing a project voice-override id via `parseQualifiedVoice`. */

@@ -7,10 +7,27 @@
  * secret. `testProbe` lives here — never in `packages/core` — because it takes
  * the plaintext secret and must never run in the browser.
  *
- * Adding a provider is: append its id to `INTEGRATION_PROVIDERS` (in
- * `@nexus/core`), add its metadata schema there, and add one descriptor here.
- * The generic routes in `routes/integration-credentials.ts` dispatch off this
- * map — an unregistered provider is a 404 before any DB access.
+ * ADDING A PROVIDER — every membership site, in order. Missing one fails
+ * silently at runtime rather than at compile time, so treat this as a
+ * checklist (`derive-tts-provider-lists`):
+ *
+ *   1. `INTEGRATION_PROVIDERS` — `packages/core/src/types/integrations.ts`.
+ *      The id list; doubles as the provider literal-union type.
+ *   2. `integrationMetadataSchemas` — same file. One zod schema per provider;
+ *      the `Record` key type makes this one compile-enforced.
+ *   3. `TTS_CAPABLE_INTEGRATION_PROVIDERS` — same file. ONLY if the provider
+ *      does TTS. `TTS_VOICE_PROVIDERS` (the qualified `provider:voice` prefix
+ *      allowlist) derives from it, so nothing else needs editing here.
+ *   4. `PROVIDER_DESCRIPTORS` — this file. One descriptor: `metadataSchema`,
+ *      `testProbe`, optional `listVoices`, optional `requiresSecret: false`.
+ *   5. `ttsVoiceProviders` — `apps/swift/NexusShared/Observers/TTSObserver.swift`.
+ *      A hand-maintained cross-language COPY of `TTS_VOICE_PROVIDERS`; no
+ *      build step keeps it in sync, so a TTS-capable provider added in TS but
+ *      not there is rejected by the Swift clients only.
+ *
+ * The generic routes in `routes/integration-credentials.ts` dispatch off
+ * `PROVIDER_DESCRIPTORS` — an unregistered provider is a 404 before any DB
+ * access.
  *
  * Any `requiresSecret: false` provider whose metadata includes a
  * user-supplied endpoint URL (like kokoro's `baseUrl`) MUST validate it with

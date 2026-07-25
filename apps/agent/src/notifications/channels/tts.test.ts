@@ -195,3 +195,102 @@ describe("sendTtsNotification — provider-qualified voice routing", () => {
     expect(calls[0]).toContain("voice-EXPLICIT");
   });
 });
+
+/**
+ * `tts-degradation-test-coverage` — the fail-open contract documented on
+ * `sendTtsNotification`: every failure mode still delivers a signal-only
+ * `NotificationFired` (`success: true`, `audioBase64` absent) so the Mac
+ * listener synthesizes locally. This handler never returns `success: false`
+ * and never throws.
+ */
+describe("sendTtsNotification — degradation to signal-only", () => {
+  it("ElevenLabs returns 500: signal-only, no throw", async () => {
+    setTtsDbHandle(fakeDbWithVoiceOverride("voice-HTTP-500"));
+
+    const calls: string[] = [];
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      calls.push(url);
+      return new Response("upstream boom", { status: 500 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await sendTtsNotification(makeNotification());
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+    expect(result.voiceUsed).toBeUndefined();
+    // The synth attempt DID happen — this is the post-request failure path.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("voice-HTTP-500");
+  });
+
+  it("no ElevenLabs credential (no DB row, no env key): signal-only, no request", async () => {
+    setTtsDbHandle(fakeDbWithVoiceOverride("voice-NEVER-USED"));
+    delete process.env.ELEVENLABS_API_KEY;
+
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      throw new Error(
+        `sendTtsNotification must not call fetch without a credential, got: ${url}`,
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await sendTtsNotification(makeNotification());
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+    expect(result.voiceUsed).toBeUndefined();
+  });
+
+  it("voice resolution throws: signal-only, no request", async () => {
+    // `resolveVoiceId` absorbs a project-voice-override DB failure in its own
+    // try/catch and falls through to `credentialVoiceId ?? defaultVoiceId()`
+    // — both null here (env key carries no voice id, no
+    // ELEVENLABS_DEFAULT_VOICE_ID) — so the observable outcome is the same
+    // signal-only degradation the outer catch in `sendTtsNotification` also
+    // guarantees. Asserted at the seam that matters: a throwing voice lookup
+    // never kills the notification and never reaches ElevenLabs.
+    setTtsDbHandle({
+      query: {
+        elevenlabsCredentials: { findFirst: mock(async () => undefined) },
+      },
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: async () => {
+              throw new Error("simulated project_voice_overrides DB failure");
+            },
+          }),
+        }),
+      }),
+    } as unknown as Db);
+
+    globalThis.fetch = mock(async (input: string | URL | Request) => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.toString()
+            : input.url;
+      throw new Error(
+        `sendTtsNotification must not call fetch when voice resolution fails, got: ${url}`,
+      );
+    }) as unknown as typeof globalThis.fetch;
+
+    const result = await sendTtsNotification(makeNotification());
+
+    expect(result.success).toBe(true);
+    expect(result.audioBase64).toBeUndefined();
+    expect(result.voiceUsed).toBeUndefined();
+  });
+});
