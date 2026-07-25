@@ -93,6 +93,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: brew install xcodegen
+      # project.yml wires Secrets.xcconfig into the nexus-ios target's
+      # `configFiles:`, but that file is GITIGNORED (it holds real bearer
+      # tokens), so it never exists in a CI checkout and `xcodegen generate`
+      # hard-fails spec validation. The committed template carries only
+      # REPLACE_WITH_* placeholders, which is all this job needs — it builds and
+      # tests nexus-mac + NexusShared, never exercising the iOS ingest paths
+      # those tokens feed. The existence guard matters because the self-hosted
+      # workspace is not ephemeral: never clobber a real Secrets.xcconfig if one
+      # is ever legitimately placed on the runner.
+      - name: Seed placeholder iOS secrets for xcodegen
+        run: |
+          cd apps/swift/nexus-ios/Resources
+          if [ ! -f Secrets.xcconfig ]; then
+            cp Secrets.example.xcconfig Secrets.xcconfig
+          fi
       - run: cd apps/swift && xcodegen generate
       - run: |
           xcodebuild test \
