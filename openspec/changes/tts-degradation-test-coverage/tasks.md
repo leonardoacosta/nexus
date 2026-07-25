@@ -17,4 +17,5 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Verify: `bun test apps/agent/src/notifications apps/agent/src/routes` (with `NEXUS_PG_TESTS=1` + `POSTGRES_URL` for PG suites) green; `grep -c 'expect(true)' apps/agent/src/notifications/notifications.test.ts` == 0; paste output. [type:testing] [beads:nx-zohg2]
+- [x] 2.1 Verify: `bun test apps/agent/src/notifications apps/agent/src/routes` (with `NEXUS_PG_TESTS=1` + `POSTGRES_URL` for PG suites) green; `grep -c 'expect(true)' apps/agent/src/notifications/notifications.test.ts` == 0; paste output. [type:testing] [beads:nx-zohg2]
+  - Verified 2026-07-25: 847 pass / 2 skip / 0 fail (2878 expect() calls), placeholder count 0. Was blocked on 3 defects surfaced by this exact command (kokoro loopback regression, DB fixture DDL drift, stale statusline guard) — all fixed and closed (nx-3wl4e.1, nx-9qsmb.15, nx-y09wq; commits ea1b99cc, f0338968) before this re-run.
