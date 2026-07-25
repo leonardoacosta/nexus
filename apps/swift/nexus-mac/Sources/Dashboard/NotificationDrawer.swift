@@ -77,7 +77,18 @@ struct NotificationDrawer: View {
 
     private var toggles: some View {
         HStack(spacing: 18) {
-            DrawerToggle(label: "TTS", on: $ttsEnabled)
+            // Routed through the model (not bare $ttsEnabled) so flipping it
+            // PATCHes `tts_enabled` like the Meeting-mode toggle beside it. The
+            // @AppStorage write is kept so the local TTSObserver reacts
+            // instantly without waiting on the round trip.
+            DrawerToggle(
+                label: "TTS",
+                on: Binding(
+                    get: { model.ttsEnabled },
+                    set: { ttsEnabled = $0; model.ttsEnabled = $0; model.persist() }
+                )
+            )
+            .accessibilityIdentifier("notification-drawer-tts-toggle")
             DrawerToggle(
                 label: "Meeting mode",
                 on: Binding(

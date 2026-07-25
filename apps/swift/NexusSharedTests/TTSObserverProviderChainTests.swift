@@ -319,4 +319,68 @@ final class TTSObserverProviderChainTests: XCTestCase {
         XCTAssertEqual(attempts.first(where: { $0.name == "elevenlabs" })?.voice, Self.baselineElevenLabsVoice)
         XCTAssertFalse(attempts.contains { $0.voice == "xyz" })
     }
+
+    // MARK: - Malformed voice id degrades instead of crashing
+    //
+    // Spec: openspec/changes/fix-swift-tts-audit-defects (tasks 1.1 / 1.5).
+    // ElevenLabsClient used to force-unwrap the request URL built from the voice
+    // id, so a stale per-project override or a bad paste took down the whole
+    // listener. It now throws `.invalidVoiceId`, which the chain must treat as
+    // an ordinary synth failure.
+
+    /// A provider that always throws the supplied error — lets the chain be
+    /// driven with a *specific* error rather than StubProvider's opaque one.
+    private struct FailingProvider: SpeechProvider {
+        let error: any Error
+        func synthesize(text _: String, voice _: String) async throws -> Data {
+            throw error
+        }
+    }
+
+    /// The malformed shapes that must be rejected before any request is built.
+    /// Modern Foundation's URL parser accepts every one of these in a path
+    /// segment (verified against the macOS 26 SDK), so the explicit validation
+    /// — not the `URL(string:)` nil branch — is what makes the degrade fire.
+    func testMalformedVoiceIdsAreRejected() {
+        let malformed = ["", " ", "bad id", "voice\n", "\tvoice", "voi\u{7F}ce"]
+        for id in malformed {
+            XCTAssertFalse(
+                ElevenLabsClient.isWellFormedVoiceId(id),
+                "\(id.debugDescription) must be rejected as a voice id"
+            )
+        }
+    }
+
+    /// Real ElevenLabs ids (and the repo's own fixture ids) must keep working —
+    /// the guard must not reject anything legitimate.
+    func testWellFormedVoiceIdsAreAccepted() {
+        for id in ["21m00Tcm4TlvDq8ikWAM", "voice-1", "leo-default", "voice_BARE_999"] {
+            XCTAssertTrue(
+                ElevenLabsClient.isWellFormedVoiceId(id),
+                "\(id.debugDescription) is a legitimate voice id"
+            )
+        }
+    }
+
+    /// An `.invalidVoiceId` throw advances the chain exactly like any other
+    /// synth failure: it is caught, logged, and the walk continues to
+    /// exhaustion (where the caller falls back to system speech) — it never
+    /// propagates and never traps.
+    func testInvalidVoiceIdThrowDegradesLikeAnyOtherFailure() async {
+        let attempts = TTSObserver.buildAttempts(
+            kokoro: StubProvider(.failure),
+            elevenLabs: FailingProvider(error: ElevenLabsError.invalidVoiceId("bad id")),
+            kokoroBaseUrl: "http://homelab:8880",
+            kokoroVoice: nil,
+            elevenLabsApiKeyPresent: true,
+            elevenLabsVoiceId: "bad id"
+        )
+
+        let result = await TTSObserver.walkProviderChain(text: "hello", attempts: attempts)
+
+        guard case .exhausted = result else {
+            XCTFail("a malformed voice id must exhaust the chain, not play; got \(result)")
+            return
+        }
+    }
 }

@@ -105,6 +105,11 @@ public final class AudioPlayer: NSObject, ObservableObject, AVAudioPlayerDelegat
         // A new clip supersedes any in-flight one — restore the prior duck
         // before applying this clip's mode so volume state never compounds.
         restoreSystemVolume()
+        // The superseded clip's row id must go with it. A TTS clip (which never
+        // sets an id) starting on top of a replayed row otherwise left the old
+        // row's stop icon lit forever. The replay button re-associates its own
+        // id via setCurrentlyPlaying(id:) right after this call returns.
+        publishCurrentlyPlaying(nil)
         self.onFinish = onFinish
         let player = try AVAudioPlayer(data: mp3Data)
         player.delegate = self

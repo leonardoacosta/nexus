@@ -170,13 +170,15 @@ public final class TTSObserver: ObservableObject {
         // window is consumed harmlessly. Spec: airpods-tts-cancel.
         let player = audioPlayer
         let speech = systemSpeech
-        let controller = nowPlaying
-        nowPlaying.cancelHandler = { [weak self] in
+        // `nowPlaying` OWNS this closure, so the previous strong capture of the
+        // controller was a retain cycle. Weak it. The closure body never touches
+        // `self`, so the old `[weak self]` + dead `_ = self` pair goes with it
+        // (keeping it warns "variable 'self' was written to, but never read").
+        nowPlaying.cancelHandler = { [weak nowPlaying] in
             player?.stop()
             Task { await speech.stop() }
-            controller.noteClipEnded()
+            nowPlaying?.noteClipEnded()
             Self.logger.info("TTSObserver: AirPods play/pause cancelled in-flight TTS")
-            _ = self
         }
 
         // Bridge the MP3 player's natural-finish callback to the grace window

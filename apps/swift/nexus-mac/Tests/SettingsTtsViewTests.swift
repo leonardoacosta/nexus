@@ -181,6 +181,73 @@ final class SettingsTtsViewTests: XCTestCase {
         try? Keychain.delete(KeychainAccount.elevenLabsApiKey)
     }
 
+    // MARK: - Notification drawer's TTS toggle persists to the agent
+    //
+    // Spec: openspec/changes/fix-swift-tts-audit-defects (tasks 1.2 / 1.5).
+    // The drawer's TTS toggle used to write only @AppStorage, so the flip never
+    // reached the agent and peer machines / this listener after a restart never
+    // learned about it — unlike the Meeting-mode toggle beside it.
+
+    /// The drawer toggle's persist body carries `tts_enabled` in snake_case
+    /// alongside the toggles that already worked.
+    func testDrawerPersistBodyCarriesTtsEnabled() {
+        let model = NotificationsViewModel()
+        model.ttsEnabled = false
+        model.meetingMode = true
+
+        let body = model.persistBody()
+
+        XCTAssertEqual(body["tts_enabled"] as? Bool, false,
+                       "the drawer's TTS toggle must reach the wire")
+        XCTAssertEqual(body["meeting_mode"] as? Bool, true)
+        XCTAssertNil(body["ttsEnabled"], "camelCase key must not leak onto the wire")
+    }
+
+    /// Flipping it also writes the local `nx.tts.enabled` default, so the
+    /// in-process TTSObserver reacts without waiting on the round trip.
+    func testDrawerPersistWritesLocalDefaultImmediately() {
+        let model = NotificationsViewModel()
+        model.ttsEnabled = false
+        model.persist()
+
+        XCTAssertFalse(SettingsStore.shared.ttsEnabled,
+                       "the local observer must see the flip immediately")
+
+        // Cleanup so neighbouring tests see defaults.
+        SettingsStore.shared.ttsEnabled = true
+    }
+
+    /// End-to-end on the wire: the drawer's body reaches the transport as a
+    /// PATCH carrying `tts_enabled`, mirroring the TTS-settings case above.
+    func testDrawerTogglePatchReachesTransport() async throws {
+        CapturingURLProtocol.reset()
+        let client = NexusShared.NexusClient(
+            endpoint: NexusEndpoint(baseURL: URL(string: "http://agent.test/")!),
+            protocolClasses: [CapturingURLProtocol.self]
+        )
+
+        let model = NotificationsViewModel()
+        model.ttsEnabled = false
+        let result = await client.patchNotificationSettings(model.persistBody())
+        XCTAssertNotNil(result, "reachable stub returns a 200 body")
+
+        CapturingURLProtocol.lock.lock()
+        let method = CapturingURLProtocol.capturedMethod
+        let captured = CapturingURLProtocol.capturedBody
+        CapturingURLProtocol.lock.unlock()
+
+        XCTAssertEqual(method, "PATCH", "settings write must use the PATCH verb")
+        let rawBody = try XCTUnwrap(captured, "the request body must reach the transport")
+        let json = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: rawBody) as? [String: Any],
+            "request body must be a JSON object"
+        )
+        XCTAssertEqual(json["tts_enabled"] as? Bool, false,
+                       "the drawer's TTS flip must land on the wire")
+
+        SettingsStore.shared.ttsEnabled = true
+    }
+
     func testProjectVoicesViewMountsInline() {
         // Smoke: SettingsTtsView's body must compile + reference
         // ProjectVoicesView in scope. Constructing the view exercises the

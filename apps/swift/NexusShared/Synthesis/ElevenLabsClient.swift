@@ -22,6 +22,10 @@ public struct ElevenLabsSynthRequest: Sendable {
 
 public enum ElevenLabsError: Error {
     case missingKey
+    /// The voice id could not form a valid request URL (empty, or carrying
+    /// characters URL(string:) rejects). Thrown instead of force-unwrapping so
+    /// `walkProviderChain` degrades to the next provider like any synth failure.
+    case invalidVoiceId(String)
     case http(Int, String)
     case decoding
 }
@@ -31,6 +35,16 @@ public actor ElevenLabsClient {
 
     public init(session: URLSession = .shared) {
         self.session = session
+    }
+
+    /// A usable ElevenLabs voice id: non-empty, and free of whitespace and
+    /// control characters that would corrupt the request path. `internal` so
+    /// NexusSharedTests can assert the contract without a live HTTP call —
+    /// the same test-seam convention TTSObserver uses.
+    static func isWellFormedVoiceId(_ voiceId: String) -> Bool {
+        guard !voiceId.isEmpty else { return false }
+        let illegal = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
+        return voiceId.rangeOfCharacter(from: illegal) == nil
     }
 
     /// POST /v1/text-to-speech/{voice_id} -> MP3 bytes.
@@ -44,7 +58,21 @@ public actor ElevenLabsClient {
             throw ElevenLabsError.missingKey
         }
 
-        let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(request.voiceId)")!
+        // A malformed voice id (stale per-project override, a bad paste) used to
+        // force-unwrap-crash the whole listener here. Throw instead so the
+        // provider chain falls through to the next provider.
+        //
+        // Both guards are load-bearing: modern Foundation's URL parser is lenient
+        // enough to accept spaces and control characters in a path segment (so the
+        // nil branch alone never fires on macOS 26), while older/linked-on-older
+        // parsers reject them outright. Validating the id explicitly makes the
+        // degrade deterministic across both.
+        guard Self.isWellFormedVoiceId(request.voiceId) else {
+            throw ElevenLabsError.invalidVoiceId(request.voiceId)
+        }
+        guard let url = URL(string: "https://api.elevenlabs.io/v1/text-to-speech/\(request.voiceId)") else {
+            throw ElevenLabsError.invalidVoiceId(request.voiceId)
+        }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("audio/mpeg", forHTTPHeaderField: "Accept")

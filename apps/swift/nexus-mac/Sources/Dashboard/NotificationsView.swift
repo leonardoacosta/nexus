@@ -96,6 +96,11 @@ struct NotificationHistoryRow: View {
 @MainActor
 final class NotificationsViewModel: ObservableObject {
     @Published private(set) var history: [NotificationEvent] = []
+    /// Mirrors `SettingsStore.ttsEnabled` (UserDefaults `nx.tts.enabled`) so the
+    /// drawer's TTS toggle persists to the agent like every other toggle here,
+    /// instead of only writing local defaults. Spec:
+    /// openspec/changes/fix-swift-tts-audit-defects (task 1.2).
+    @Published var ttsEnabled: Bool = true
     @Published var meetingMode: Bool = false
     @Published var signalOnly: Bool = false
     @Published var suppressionMinutes: Int = 0
@@ -127,6 +132,7 @@ final class NotificationsViewModel: ObservableObject {
 
     init() {
         let defaults = UserDefaults.standard
+        ttsEnabled = SettingsStore.shared.ttsEnabled
         meetingMode = defaults.bool(forKey: Keys.meetingMode)
         signalOnly = defaults.bool(forKey: Keys.signalOnly)
         suppressionMinutes = max(0, defaults.integer(forKey: Keys.suppressionMin))
@@ -196,6 +202,10 @@ final class NotificationsViewModel: ObservableObject {
 
     func persist() {
         let defaults = UserDefaults.standard
+        // Writes UserDefaults `nx.tts.enabled` — the same key the drawer's
+        // @AppStorage and TTSObserver's SettingsStore read, so the local
+        // observer still reacts instantly.
+        SettingsStore.shared.ttsEnabled = ttsEnabled
         defaults.set(meetingMode, forKey: Keys.meetingMode)
         defaults.set(signalOnly, forKey: Keys.signalOnly)
         defaults.set(suppressionMinutes, forKey: Keys.suppressionMin)
@@ -206,15 +216,24 @@ final class NotificationsViewModel: ObservableObject {
         // call, a silent failure the UI masked by unconditionally flashing
         // "Saved". Inspect the PATCH result and surface a real error on failure,
         // matching SettingsRoutingView's status-flash pattern.
-        let body: [String: Any] = [
-            "meeting_mode": meetingMode,
-            "signal_only": signalOnly,
-            "suppression_minutes": suppressionMinutes,
-        ]
+        let body = persistBody()
         Task { [settingsClient] in
             let result = await settingsClient.patchNotificationSettings(body)
             await MainActor.run { self.flash(result == nil ? "Save failed" : "Saved") }
         }
+    }
+
+    /// The PATCH body `persist()` sends. `internal` (not inlined) so
+    /// nexus-mac-Tests can assert the wire keys directly — the view model wires
+    /// its own private NexusClient with no injection seam, the same test-seam
+    /// convention SettingsTtsViewModel.duckingWire uses.
+    func persistBody() -> [String: Any] {
+        [
+            "tts_enabled": ttsEnabled,
+            "meeting_mode": meetingMode,
+            "signal_only": signalOnly,
+            "suppression_minutes": suppressionMinutes,
+        ]
     }
 
     /// Flash a transient save/error status, mirroring SettingsRoutingView.flash.

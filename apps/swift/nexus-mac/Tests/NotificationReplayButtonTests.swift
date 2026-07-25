@@ -81,6 +81,39 @@ final class NotificationReplayButtonTests: XCTestCase {
                      "natural finish clears the tracking id with no stop tap")
     }
 
+    /// (d) A new clip started through the data path — the TTS pipeline, which
+    /// plays anonymous clips and never sets an id — supersedes a tracked row,
+    /// so the superseded row's id must clear. Before this, the old row's stop
+    /// icon stayed lit for a clip that was no longer playing, and tapping it
+    /// stopped the *TTS* clip instead.
+    /// Spec: openspec/changes/fix-swift-tts-audit-defects (task 1.4).
+    func testDataPlaySupersedingTrackedRowClearsCurrentlyPlayingId() throws {
+        let player = AudioPlayer()
+        player.setCurrentlyPlaying(id: "row-A")
+        XCTAssertEqual(player.currentlyPlayingId, "row-A", "row A is the playing clip")
+
+        // The TTS pipeline's entry point: raw bytes, no id association.
+        try player.play(mp3Data: Self.silentWav(), ducking: .mix)
+
+        XCTAssertNil(player.currentlyPlayingId,
+                     "a superseding clip clears the previous row's tracking id")
+        player.stop()
+    }
+
+    /// The replay button's own path still tracks correctly: it associates its
+    /// row id immediately after handing bytes to `play(mp3Data:)`, so the clear
+    /// above must not stomp the row that started the clip.
+    func testReplayRowIdSurvivesItsOwnPlayCall() throws {
+        let player = AudioPlayer()
+
+        try player.play(mp3Data: Self.silentWav(), ducking: .mix)
+        player.setCurrentlyPlaying(id: "row-B")
+
+        XCTAssertEqual(player.currentlyPlayingId, "row-B",
+                       "the row that started the clip keeps its id")
+        player.stop()
+    }
+
     // MARK: - Fixtures
 
     /// Minimal valid 16-bit PCM mono WAV of silence — just enough for
