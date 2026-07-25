@@ -9,7 +9,7 @@
 import { createLogger } from "@nexus/core/node";
 import type { WatcherEvent } from "@nexus/core";
 import type { Db } from "@nexus/db";
-import { credentials, eq, sessions, and, or, isNull, inArray, desc, asc } from "@nexus/db";
+import { credentials, eq, sessions, and, or, isNull, inArray, desc, asc, sql } from "@nexus/db";
 import {
   recordSessionStop,
   updateSessionModel,
@@ -729,6 +729,26 @@ async function tryReactiveRateLimitSwap(
 
   const fromFingerprint = outcome.result?.parked?.fingerprint;
   if (fromFingerprint) recordFailure(fromFingerprint, 429);
+
+  // Persist the 429 against the parked credential's row too (nx-66enz):
+  // recordFailure() above only bumps the in-memory 24h tracker feeding the
+  // /credentials route's rateLimit429Count display. findReactiveSwapCandidate
+  // ranks by the persisted rate_limit_count column, so without this the
+  // reactive-swap trigger history never affects future candidate ordering.
+  const parkedId = outcome.result?.parked?.id;
+  if (parkedId) {
+    try {
+      await db
+        .update(credentials)
+        .set({ rateLimitCount: sql`rate_limit_count + 1` })
+        .where(eq(credentials.id, parkedId));
+    } catch (err) {
+      log.warn(
+        { err, parkedId },
+        "reactive-swap: persisting rate_limit_count bump failed (non-fatal)",
+      );
+    }
+  }
 
   armDebounce(sessionId);
 

@@ -8,8 +8,7 @@
  *  2. Mirror each observed profile into `cc_profiles` with encrypted refresh
  *     tokens.
  *  3. Proactive OAuth refresh 5 minutes before `expiresAt`.
- *  4. Rate-limit-aware swap on 429.
- *  5. Schema-drift detection — emit `CCAuthSchemaDrift` when the on-disk
+ *  4. Schema-drift detection — emit `CCAuthSchemaDrift` when the on-disk
  *     fingerprint diverges from the supported shape.
  *
  * Active management means the agent owns writes to credentials.json. The
