@@ -130,6 +130,18 @@ public final class TTSObserver: ObservableObject {
     /// itself needs no extra synchronisation.
     private var projectVoiceCache: [String: String] = [:]
 
+    /// Bounded set of recently-handled notification ids (nx-wi34v.1). The
+    /// agent emits `NotificationFired` once per delivered channel — a
+    /// banner+tts notification fans out to both "desktop" and "tts" channel
+    /// events sharing the same `id` (router.ts:291-296) — so without this
+    /// guard `postBanner()` ran twice per qualifying notification, reading
+    /// as "TTS sounding off twice". Mirrors
+    /// `NotificationPushSubscriber.recent` (apps/agent/src/health-push/
+    /// notification-push.ts), including its trim-oldest-half policy.
+    private var recentNotificationIds: [UUID] = []
+    private var recentNotificationIdSet: Set<UUID> = []
+    private static let recentNotificationIdCap = 512
+
     public init(
         client: NexusAggregateClient,
         keychain: KeychainStore = LiveKeychainStore(),
@@ -589,7 +601,19 @@ public final class TTSObserver: ObservableObject {
         // Stage 2 — banner. Posted BEFORE synth so the user sees the alert
         // immediately even when the network is slow or ElevenLabs times
         // out. Fire-and-forget; the OS handles authorisation gating.
-        await postBanner(for: event)
+        //
+        // Dedup by id (nx-wi34v.1): the SAME notification arrives here twice
+        // — once per delivered channel ("desktop" then "tts", or vice versa)
+        // — so without this guard postBanner() ran twice per notification.
+        // Scoped to the banner only: Stage 3 (synth) below still runs for
+        // every "tts"-channel event regardless of banner dedup state.
+        if markBannerPosted(for: event.id) {
+            await postBanner(for: event)
+        } else {
+            Self.logger.debug(
+                "TTSObserver: banner already posted for id=\(event.id.uuidString, privacy: .public) — skipping duplicate channel fan-out"
+            )
+        }
 
         // Stage 3 — synth + playback (TTS channel only). ElevenLabs first,
         // system speech on any failure (missing key, network error, HTTP
@@ -610,6 +634,25 @@ public final class TTSObserver: ObservableObject {
             return
         }
         await enqueueSpeech(event)
+    }
+
+    /// Returns `true` the FIRST time `id` is seen (banner should post), and
+    /// `false` on any repeat (the sibling channel event for the same
+    /// notification). Bounded to `recentNotificationIdCap`, trimming the
+    /// oldest half once exceeded — mirrors `NotificationPushSubscriber.recent`
+    /// (apps/agent/src/health-push/notification-push.ts).
+    private func markBannerPosted(for id: UUID) -> Bool {
+        guard !recentNotificationIdSet.contains(id) else { return false }
+        recentNotificationIdSet.insert(id)
+        recentNotificationIds.append(id)
+        if recentNotificationIds.count > Self.recentNotificationIdCap {
+            let drop = recentNotificationIds.count - Self.recentNotificationIdCap / 2
+            for id in recentNotificationIds.prefix(drop) {
+                recentNotificationIdSet.remove(id)
+            }
+            recentNotificationIds.removeFirst(drop)
+        }
+        return true
     }
 
     // MARK: - Playback queue (tts-pipeline-stop-and-queue, task 1.3)
