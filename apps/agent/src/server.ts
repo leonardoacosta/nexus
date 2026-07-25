@@ -24,7 +24,7 @@
 
 import type { Db } from "@nexus/db";
 import type { ServerWebSocket, Server as BunServer } from "bun";
-import { logger, parseConfig, getAgentsConfigPath } from "@nexus/core/node";
+import { logger, parseConfig, getAgentsConfigPath, assertAllowedBinary } from "@nexus/core/node";
 import { initNotificationRoutes } from "./routes/notifications";
 import { setTtsDbHandle } from "./notifications/router";
 import { initCredentialRoutes, getCredentialPool } from "./routes/credentials";
@@ -66,6 +66,12 @@ const IPV4_RE = /^\d{1,3}(\.\d{1,3}){3}$/;
  */
 function probeTailscaleOnce(): string | null {
   try {
+    // nx-9qsmb.7: constant argv (no interpolated input), but still routed
+    // through safeSpawn's allowlist check — mirrors createValidatedSpawnFns'
+    // pattern in tmux-pty-source.ts for the same reason (Bun.spawnSync has
+    // no async safeSpawn equivalent, so this is the sync-safe way to get the
+    // allowlist guarantee at the one choke point where the binary is named).
+    assertAllowedBinary("tailscale");
     const proc = Bun.spawnSync(["tailscale", "ip", "-4"], {
       stdout: "pipe",
       stderr: "pipe",

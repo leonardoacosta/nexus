@@ -152,9 +152,13 @@ export async function getRemoteAgents(
   const configPath = opts.configPath ?? getAgentsConfigPath();
   const bashBin = opts.bashBin ?? "bash";
 
+  // nx-9qsmb.7: scriptPath/configPath passed as quoted positionals ($0/$1)
+  // rather than interpolated into the shell string — mirrors git-project.ts's
+  // spawnGitMetadata pattern so a path containing shell metacharacters can
+  // never be reinterpreted by the shell.
   const stdout = await execText(
     bashBin,
-    ["-c", `source "${scriptPath}" && get_remote_agents "${configPath}"`],
+    ["-c", 'source "$0" && get_remote_agents "$1"', scriptPath, configPath],
     { trustArgs: true },
   );
   return parseRemoteAgentsOutput(stdout);
