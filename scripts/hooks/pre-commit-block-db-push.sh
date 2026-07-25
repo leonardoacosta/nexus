@@ -32,7 +32,7 @@ set -eu
 # signals it is documenting the prohibition rather than endorsing the command.
 
 pattern='(db:push|drizzle-kit[[:space:]]+push)'
-negation='([Nn]ever|NEVER|[Ff]orbid|[Bb]anned|[Bb]lock|NOT used|not used|instead of|do not|don.t|reject)'
+negation='([Nn]ever|NEVER|[Ff]orbid|[Bb]anned|[Bb]lock|NOT used|not used|instead of|do not|don.t|reject|[Pp]rohibit)'
 
 # Exclude this guard's own file from the scan: its source necessarily repeats
 # `db:push` many times to explain and match against the very thing it forbids,

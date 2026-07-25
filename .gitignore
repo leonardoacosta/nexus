@@ -101,3 +101,4 @@ apps/nexus-statusline/nexus-statusline
 docs/apply/apply-*/
 docs/apply/active.txt
 docs/apply/last.txt
+.vercel
