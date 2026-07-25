@@ -276,18 +276,3 @@ excluded — their dead OAuth tokens would fail every call and trip the >50%-fai
 - **WHEN** the poller queries pollable rows
 - **THEN** those rows are not returned and do not count toward the tick's failure rate
 
-## REMOVED Requirements
-
-### Requirement: The system SHALL expose GET /sessions/{id}/tokens
-
-**Reason**: Retired by `redesign-status-usage-endpoints` task 2.5 as part of collapsing the
-status/usage surface into `GET /statusline`. Discovered as stale drift 2026-07-14 while
-resolving `nx-ysmwm` — the original proposal's delta authoring never touched this capability,
-so this requirement kept describing a route that had already been removed from
-`apps/agent/src/server-request-handler.ts`.
-
-**Migration**: Callers of `GET /sessions/{id}/tokens` now use
-`GET /statusline?sessionId=<id>` and read `session.usage` (composed via
-`readSessionCostTokens`, per the `cc-telemetry-read` delta of the same proposal) instead of
-the retired route's `{ turns, aggregates }` shape.
-
