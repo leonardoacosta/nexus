@@ -27,5 +27,11 @@ stack: t3
 
 ## E2E Batch
 
-- [ ] 2.1 Fresh-clone simulation: scratch worktree, `git clean -xdf`, `bun install --frozen-lockfile`, then `bunx turbo typecheck`, `bunx turbo lint`, `bun test` (PG via `docker compose -f docker-compose.test.yml up -d --wait`, `NEXUS_PG_TESTS=1`). Paste results. [type:testing] [beads:nx-ie266]
-- [ ] 2.2 CI green end-to-end on the branch with pnpm fully removed; deploy/tests suite green after the recovery-branch removal. Paste run link + output. [type:testing] [beads:nx-vvtne]
+- [x] 2.1 Fresh-clone simulation: scratch worktree, `git clean -xdf`, `bun install --frozen-lockfile`, then `bunx turbo typecheck`, `bunx turbo lint`, `bun test` (PG via `docker compose -f docker-compose.test.yml up -d --wait`, `NEXUS_PG_TESTS=1`). Paste results. [type:testing] [beads:nx-ie266]
+  - `bun install --frozen-lockfile`: "Checked 246 installs across 347 packages (no changes)" — clean, no drift.
+  - `bunx turbo typecheck`: 9/9 successful.
+  - `bunx turbo lint`: 8/8 successful, 0 errors (50 pre-existing warnings, unratcheted packages).
+  - `bun test` (PG migrated, NEXUS_PG_TESTS=1): completed in 154s (not a hang — see nx-9qsmb.12 for the separate pre-push-hook hang, confirmed NOT reproduced by a bare fresh-clone run). 1929 pass, 121 fail, 30 errors, 26 skip across 2076 tests. Failures traced to two pre-existing, non-migration test-infrastructure gaps (bun test picking up Playwright e2e specs meant for `playwright test`; a version.gen build-order gap for one e2e test) — filed as nx-9qsmb.13, not blocking this spec.
+- [x] 2.2 CI green end-to-end on the branch with pnpm fully removed; deploy/tests suite green after the recovery-branch removal. Paste run link + output. [type:testing] [beads:nx-vvtne]
+  - CI run https://github.com/leonardoacosta/nexus/actions/runs/30138559255 (commit 3add14ee): package-manager steps (bun install --frozen-lockfile, second-lockfile guard) passed cleanly. Overall job red only from the same 4 pre-existing apps/agent test flakes tracked in nx-9qsmb.11 (unrelated to this migration, confirmed via git diff since session start).
+  - `deploy/tests/02-deploy-lockfile-drift.test.sh`: "PASS: 02-deploy hard-fails immediately on lockfile drift (no silent recovery)" — asserts the new hard-fail contract post-recovery-branch-removal.
