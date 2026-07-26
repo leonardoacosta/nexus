@@ -1,6 +1,11 @@
+---
+status: current
+updated: 2026-07-20
+---
+
 # Local TTS Research — Replacing ElevenLabs
 
-*2026-07-20 · Context: Nexus speaks short single-line notification phrases. Real synth path is `apps/swift/NexusShared/Synthesis/ElevenLabsClient.swift` (batch MP3 → `AVAudioPlayer`); the agent-side pre-render in `apps/agent/src/notifications/channels/tts.ts` is best-effort and unused by playback. Fallback is `/usr/bin/say`. Requirements: low time-to-first-audio on short text, per-project voice mapping, MP3 (or WAV) `Data` out, runs on Mac and/or homelab over Tailscale.*
+*Context: Nexus speaks short single-line notification phrases. Real synth path is `apps/swift/NexusShared/Synthesis/ElevenLabsClient.swift` (batch MP3 → `AVAudioPlayer`); the agent-side pre-render in `apps/agent/src/notifications/channels/tts.ts` is best-effort and unused by playback. Fallback is `/usr/bin/say`. Requirements: low time-to-first-audio on short text, per-project voice mapping, MP3 (or WAV) `Data` out, runs on Mac and/or homelab over Tailscale.*
 
 ## Candidates
 
